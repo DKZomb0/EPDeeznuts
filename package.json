@@ -1,0 +1,19 @@
+{
+  "name": "epdeeznuts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Milieudeclaratie- en verificatieplatform voor de Belgische betonsector (EPD/BEPD, EN 15804, modules A1-A5)",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node --no-warnings server/index.js",
+    "dev": "node --no-warnings --watch server/index.js",
+    "reset": "node --no-warnings server/db/reset.js",
+    "test": "node --no-warnings --test test/*.test.js"
+  },
+  "optionalDependencies": {
+    "pg": "^8.13.1"
+  }
+}
