@@ -19,12 +19,15 @@ const server = createServer((req, res) => {
   });
 });
 
+// Bewust niet afbreken bij een mislukte opstart: de server start toch, zodat
+// /api/health en het diagnosescherm kunnen zeggen wát er misgaat. Zonder dat
+// blijft er alleen een regel in een terminal over die niemand meer openheeft.
 try {
   await ready();
   console.log(`[epd] database: ${driverName()}`);
 } catch (err) {
-  console.error('[epd] kon de databank niet initialiseren:', err.message);
-  process.exit(1);
+  console.error(`[epd] de databank kon niet geïnitialiseerd worden: ${err.message}`);
+  console.error('[epd] de server start wel; open /api/health voor de volledige diagnose.');
 }
 
 server.listen(PORT, HOST, () => {

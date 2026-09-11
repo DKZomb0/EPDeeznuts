@@ -5,7 +5,7 @@
  * server for local use, `api/index.js` hands it Vercel's (req, res) pair. Which
  * one is running changes nothing about the routing.
  */
-import { ready } from '../db/index.js';
+import { ready, diagnostics } from '../db/index.js';
 import { userForToken, purgeExpiredSessions } from '../lib/auth.js';
 import { Forbidden } from '../domain/permissions.js';
 import { Router } from './router.js';
@@ -45,6 +45,14 @@ export async function handleRequest(req, res, { serveAssets = false } = {}) {
     if (!pathname.startsWith('/api/')) {
       if (serveAssets) return serveStatic(req, res, pathname);
       return json(res, 404, { error: { code: 'NOT_FOUND', message: 'Onbekend eindpunt.' } });
+    }
+
+    // Bewust vóór ready(): als de opstart faalt, is dit het enige eindpunt dat
+    // nog kan zeggen waaróm. Het zou nutteloos zijn als het zelf over dezelfde
+    // fout struikelt.
+    if (pathname === '/api/health') {
+      const info = await diagnostics();
+      return json(res, info.ready ? 200 : 503, info);
     }
 
     await ready();

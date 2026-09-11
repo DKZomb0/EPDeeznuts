@@ -8,19 +8,43 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 
-const dir = mkdtempSync(join(tmpdir(), 'epd-test-'));
-process.env.EPD_DB = join(dir, 'test.db');
+/**
+ * Standaard SQLite in een wegwerpmap. Met TEST_DATABASE_URL draait dezelfde
+ * suite tegen Postgres, zodat de uitrolvariant niet alleen op goed vertrouwen
+ * berust:
+ *
+ *   TEST_DATABASE_URL=postgres://... npm test
+ */
+const usePostgres = !!process.env.TEST_DATABASE_URL;
+const dir = usePostgres ? null : mkdtempSync(join(tmpdir(), 'epd-test-'));
+
+// node --test draait testbestanden parallel. Elk bestand krijgt daarom zijn
+// eigen Postgres-schema in plaats van allemaal `public` leeg te maken, wat een
+// race tussen de processen zou zijn.
+const schema = usePostgres ? `t_${process.pid}_${Math.random().toString(36).slice(2, 7)}` : null;
+
 process.env.DEMO_DATA = '1';
-delete process.env.DATABASE_URL;
+if (usePostgres) {
+  const url = new URL(process.env.TEST_DATABASE_URL);
+  url.searchParams.set('options', `-c search_path=${schema}`);
+  process.env.DATABASE_URL = url.toString();
+  delete process.env.EPD_DB;
+} else {
+  process.env.EPD_DB = join(dir, 'test.db');
+  delete process.env.DATABASE_URL;
+}
 
 const db = await import('../server/db/index.js');
+
+if (usePostgres) await db.exec(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
 await db.ready();
 
 export { db };
 
 export async function teardown() {
+  if (usePostgres) await db.exec(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
   await db.close();
-  rmSync(dir, { recursive: true, force: true });
+  if (dir) rmSync(dir, { recursive: true, force: true });
 }
 
 export async function org(type) {

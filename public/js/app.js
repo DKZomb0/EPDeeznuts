@@ -20,6 +20,7 @@ export const state = {
   notifications: [],
   counts: {},
   personas: { accounts: [], password: null },
+  health: null,
 };
 
 export const can = (capability) => state.capabilities.includes(capability);
@@ -88,7 +89,7 @@ async function boot() {
     state.capabilities = me.capabilities;
     state.reference = reference;
     setReference(reference);
-    await Promise.all([loadCounts(), loadPersonas()]);
+    await Promise.all([loadCounts(), loadPersonas(), loadHealth()]);
     renderShell();
     await route();
   } catch (err) {
@@ -96,8 +97,111 @@ async function boot() {
       renderLogin(root, onAuthenticated);
       return;
     }
-    mount(root, div({ class: 'empty' }, `De toepassing kon niet starten: ${err.message}`));
+    await renderBootFailure(err);
   }
+}
+
+/**
+ * Een mislukte opstart is bijna altijd een uitrolprobleem, geen bug in het
+ * scherm. "Er ging intern iets mis" helpt dan niemand, dus haalt dit de
+ * diagnose op bij /api/health en zet ze erbij.
+ */
+async function renderBootFailure(err) {
+  let health = null;
+  try {
+    const response = await fetch('/api/health');
+    health = await response.json();
+  } catch {
+    /* ook de diagnose is onbereikbaar; dan blijft de oorspronkelijke fout over */
+  }
+
+  const rows = health
+    ? [
+        ['Databankdriver', health.driver],
+        ['DATABASE_URL ingesteld', health.databaseUrlSet ? 'ja' : 'nee'],
+        ['Serverless omgeving', health.serverless ? 'ja' : 'nee'],
+        ['Opslag', health.location ?? '—'],
+        ['Node', health.node],
+      ]
+    : [];
+
+  mount(
+    root,
+    div(
+      { class: 'login__form', style: { minHeight: '100vh', alignItems: 'flex-start', paddingTop: '64px' } },
+      div(
+        { class: 'login__box' },
+        div({ class: 'wordmark' }, span({ class: 'wordmark__name' }, 'Materia')),
+        div(
+          { class: 'banner banner--neutral mt-2' },
+          div(
+            { class: 'grow' },
+            div({ class: 'banner__title' }, 'De toepassing kon niet starten'),
+            div({}, health?.error ?? err.message),
+            health?.hint ? div({ class: 'mt-1' }, health.hint) : null,
+          ),
+        ),
+        rows.length
+          ? div(
+              { class: 'panel mt-2' },
+              div({ class: 'panel__kicker mb-1' }, 'Diagnose'),
+              div(
+                { class: 'kv' },
+                rows.flatMap(([k, v]) => [div({ class: 'muted small' }, k), div({ class: 'mono small' }, String(v))]),
+              ),
+            )
+          : null,
+        adviceFor(health),
+        div({ class: 'tiny muted mt-2' }, 'Volledige diagnose: /api/health'),
+      ),
+    ),
+  );
+}
+
+/**
+ * Advies dat bij de vastgestelde toestand past. Een foutscherm dat naast de
+ * kwestie praat, kost meer tijd dan het bespaart.
+ */
+function adviceFor(health) {
+  if (!health) return null;
+
+  const panel = (title, ...body) =>
+    div({ class: 'panel mt-2' }, div({ class: 'panel__kicker mb-1' }, title), div({ class: 'small dim' }, ...body));
+
+  if (health.driver === 'sqlite' && health.serverless && !health.databaseUrlSet) {
+    return panel(
+      'Meest voorkomende oorzaak bij een verse uitrol',
+      'Serverless functies hebben een read-only bestandssysteem, dus de SQLite-terugval kan niets bewaren. Stel ',
+      span({ class: 'mono' }, 'DATABASE_URL'),
+      ' in op een Postgres-databank (Vercel Postgres, Neon of Supabase) en deploy opnieuw. Het schema wordt bij de eerste koude start aangemaakt.',
+    );
+  }
+
+  if (health.driver === 'postgres') {
+    return panel(
+      'Wat te controleren',
+      'De toepassing wil naar Postgres maar krijgt geen verbinding. Controleer of ',
+      span({ class: 'mono' }, 'DATABASE_URL'),
+      ' klopt en of de databank bereikbaar is vanaf deze omgeving. Bij een beheerde aanbieder hoort er meestal ',
+      span({ class: 'mono' }, '?sslmode=require'),
+      ' achter de URL; ',
+      span({ class: 'mono' }, 'DATABASE_SSL'),
+      ' overschrijft dat als de URL niet aangepast kan worden.',
+    );
+  }
+
+  if (String(health.error ?? '').includes('schemabestand')) {
+    return panel(
+      'Wat te controleren',
+      'Het schemabestand zit niet in de build. Op Vercel hoort ',
+      span({ class: 'mono' }, '"includeFiles": "server/db/**"'),
+      ' bij de functieconfiguratie in ',
+      span({ class: 'mono' }, 'vercel.json'),
+      '.',
+    );
+  }
+
+  return panel('Wat te controleren', 'De volledige diagnose staat op /api/health. De omgevingsvariabelen bepalen welke opslag gebruikt wordt.');
 }
 
 async function onAuthenticated(session) {
@@ -105,7 +209,7 @@ async function onAuthenticated(session) {
   state.capabilities = session.capabilities;
   state.reference = await api.get('/reference');
   setReference(state.reference);
-  await Promise.all([loadCounts(), loadPersonas()]);
+  await Promise.all([loadCounts(), loadPersonas(), loadHealth()]);
   location.hash = '#/';
   renderShell();
   await route();
@@ -117,6 +221,15 @@ async function loadCounts() {
     state.counts = counts;
   } catch {
     state.counts = {};
+  }
+}
+
+async function loadHealth() {
+  try {
+    const response = await fetch('/api/health');
+    state.health = await response.json();
+  } catch {
+    state.health = null;
   }
 }
 
@@ -156,6 +269,7 @@ function renderShell() {
         span({ class: 'chip-poc' }, 'Proof of concept'),
         topbarRight,
       ),
+      state.health?.ephemeral ? ephemeralWarning() : null,
       div({ class: 'body' }, navHost, outlet),
     ),
   );
@@ -171,6 +285,29 @@ function renderShell() {
  * platform rechten voorwenden die het niet afdwingt. Zonder demodata valt de
  * schakelaar gewoon weg.
  */
+/**
+ * Draait de toepassing op wegwerpopslag, dan moet dat op het scherm staan.
+ * Iemand die een demo geeft en halverwege zijn gegevens kwijtraakt zonder
+ * waarschuwing, is slechter af dan iemand die het van tevoren wist.
+ */
+function ephemeralWarning() {
+  return div(
+    {
+      class: 'banner banner--warn',
+      style: { borderRadius: 0, borderLeft: 'none', borderBottom: '1px solid var(--color-divider)' },
+    },
+    icon('warning', { size: 17, className: 'banner__icon' }),
+    div(
+      { class: 'grow' },
+      span({ style: { fontWeight: 500 } }, 'Tijdelijke opslag. '),
+      span(
+        {},
+        'Er is geen DATABASE_URL ingesteld, dus de gegevens staan in /tmp: ze verdwijnen bij een koude start en worden niet gedeeld tussen serverinstanties. Voor een demo die blijft staan hoort hier een Postgres-databank achter.',
+      ),
+    ),
+  );
+}
+
 function renderTopbarRight() {
   const byType = new Map();
   for (const account of state.personas.accounts ?? []) {

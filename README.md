@@ -160,21 +160,41 @@ Bij indiening wordt de berekening **bevroren** in `result_json`. Wat een verific
 
 ## Uitrollen op Vercel
 
-De repository is klaar om te deployen. Twee zaken zijn belangrijk:
+De repository is klaar om te deployen. Er is één ding dat u écht moet instellen:
 
-**1. Zet `DATABASE_URL`.** Serverless functies hebben een vluchtig bestandssysteem; SQLite zou daar elke schrijfactie verliezen. Met `DATABASE_URL` ingesteld praat de toepassing met Postgres (Vercel Postgres, Neon en Supabase werken alle drie). Het schema wordt bij de eerste cold start aangemaakt, met een advisory lock zodat gelijktijdige instanties elkaar niet in de weg lopen.
+**Zet `DATABASE_URL`.** Serverless functies hebben een read-only bestandssysteem en een `/tmp` die bij elke koude start leeggaat. Zonder `DATABASE_URL` start de toepassing wel — ze valt terug op `/tmp` — maar dan verdwijnen de gegevens telkens opnieuw en zien twee gelijktijdige instanties elkaars werk niet. De interface zet daar een waarschuwingsbalk voor bovenaan het scherm. Met `DATABASE_URL` praat de toepassing met Postgres (Vercel Postgres, Neon en Supabase werken alle drie) en wordt het schema bij de eerste koude start aangemaakt, met een advisory lock zodat gelijktijdige instanties elkaar niet in de weg lopen.
 
 ```bash
-vercel env add DATABASE_URL         # postgres://…
+vercel env add DATABASE_URL         # postgres://…?sslmode=require
 vercel env add DEMO_DATA            # "0" om zonder fictieve organisaties te starten
 vercel deploy --prod
 ```
 
-**2. `pg` is een optionele afhankelijkheid.** Vercel installeert ze automatisch; lokaal blijft de checkout dependency-vrij zolang `DATABASE_URL` niet gezet is.
+Verdere aandachtspunten:
 
-De client in `public/` wordt rechtstreeks vanaf de edge geserveerd en bereikt de functie nooit — daarom gebruikt hij hash-routing, zodat er geen rewrites nodig zijn. `vercel.json` stuurt enkel `/api/*` naar de functie.
+- **TLS** wordt bepaald door de verbindingsreeks, niet door een gok. Beheerde aanbieders zetten zelf `?sslmode=require` in de URL; daarbij wordt de certificaatketen niet geverifieerd, omdat die van hen meestal niet in de standaard truststore zit. Staat er geen `sslmode` in de URL, dan wordt er géén TLS geforceerd. `DATABASE_SSL` overschrijft dat als u de URL niet kunt aanpassen.
+- **`pg` is een optionele afhankelijkheid.** Vercel installeert ze automatisch; lokaal blijft de checkout dependency-vrij zolang `DATABASE_URL` niet gezet is.
+- **`schema.sql` wordt ingelezen, niet geïmporteerd**, dus een bundelaar die alleen imports volgt neemt het niet mee. `vercel.json` geeft daarom `"includeFiles": "server/db/**"` mee.
+- De client in `public/` wordt rechtstreeks vanaf de edge geserveerd en bereikt de functie nooit — daarom gebruikt hij hash-routing, zodat er geen rewrites nodig zijn. `vercel.json` stuurt enkel `/api/*` naar de functie.
 
 Draaien op een gewone server kan ook: `npm start` bedient API én client op één poort.
+
+### Als het misgaat
+
+`GET /api/health` zegt wat er aan de hand is, ook wanneer de opstart faalt — dat eindpunt draait bewust vóór de databankinitialisatie:
+
+```json
+{ "driver": "postgres", "databaseUrlSet": true, "serverless": true,
+  "ephemeral": false, "ready": false, "error": "connect ECONNREFUSED …" }
+```
+
+Start de toepassing niet, dan toont het scherm zelf diezelfde diagnose met advies dat bij de vastgestelde toestand past.
+
+De testsuite draait desgewenst tegen Postgres in plaats van SQLite, zodat de uitrolvariant niet alleen op goed vertrouwen berust:
+
+```bash
+TEST_DATABASE_URL=postgres://… npm test
+```
 
 ---
 
@@ -197,6 +217,7 @@ Alle eindpunten zitten onder `/api` en verwachten een sessiecookie (`POST /api/a
 | `POST /deliveries/:id/gate`, `.../override` | de leveringscontrole |
 | `GET /aggregation/preview`, `GET /aggregations/:id/totem` | sectorgemiddelden en export |
 | `GET /audit` | de audittrail |
+| `GET /health` | diagnose van de opstart; werkt ook wanneer de databank onbereikbaar is |
 
 ---
 

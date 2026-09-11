@@ -13,7 +13,21 @@ import { driverName, exec } from './index.js';
 const here = dirname(fileURLToPath(import.meta.url));
 
 export function schemaSql(dialect = driverName()) {
-  const raw = readFileSync(join(here, 'schema.sql'), 'utf8');
+  const file = join(here, 'schema.sql');
+  let raw;
+  try {
+    raw = readFileSync(file, 'utf8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+    // Een bundelaar die alleen imports volgt, neemt dit bestand niet mee: het
+    // wordt gelezen, niet geïmporteerd. Zeg dat met zoveel woorden in plaats
+    // van een kale ENOENT door te geven.
+    throw new Error(
+      `Het schemabestand ontbreekt in deze build: ${file}. ` +
+        'Het wordt ingelezen en niet geïmporteerd, dus een bundelaar neemt het enkel mee als het expliciet opgegeven is ' +
+        '(op Vercel: "includeFiles" in vercel.json).',
+    );
+  }
   return dialect === 'postgres' ? toPostgres(raw) : raw;
 }
 

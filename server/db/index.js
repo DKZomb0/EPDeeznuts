@@ -111,12 +111,57 @@ export async function ready() {
         const { seed } = await import('./seed.js');
         await seed();
       });
+      lastBootstrapError = null;
     })().catch((err) => {
+      // Onthouden zodat /api/health kan zeggen wát er misging; zonder dat komt
+      // een mislukte opstart bij de gebruiker aan als "er ging iets mis".
+      lastBootstrapError = err;
       readyPromise = null;
       throw err;
     });
   }
   return readyPromise;
+}
+
+let lastBootstrapError = null;
+
+/**
+ * Wat is hier aan de hand? Bedoeld om een mislukte uitrol in één oogopslag te
+ * kunnen duiden: welke driver, waar staat de opslag, blijft ze bestaan, en wat
+ * was de laatste opstartfout.
+ */
+export async function diagnostics() {
+  const info = {
+    driver: driverName(),
+    databaseUrlSet: !!process.env.DATABASE_URL,
+    serverless: !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME),
+    demoData: process.env.DEMO_DATA !== '0',
+    node: process.version,
+    ephemeral: null,
+    storageNote: null,
+    location: null,
+    ready: false,
+    error: null,
+  };
+
+  try {
+    const d = await loadDriver();
+    info.ephemeral = d.ephemeral ?? false;
+    info.storageNote = d.storageNote ?? null;
+    info.location = d.location ?? null;
+    await ready();
+    info.ready = true;
+  } catch (err) {
+    info.error = err.message;
+  }
+
+  if (info.driver === 'sqlite' && info.serverless && !info.databaseUrlSet) {
+    info.hint =
+      'Deze omgeving is serverless maar er is geen DATABASE_URL ingesteld. Zonder Postgres is er geen opslag die een koude start overleeft.';
+  }
+  if (lastBootstrapError && !info.error) info.error = lastBootstrapError.message;
+
+  return info;
 }
 
 /**

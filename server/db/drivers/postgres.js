@@ -24,9 +24,7 @@ export async function create({ url } = {}) {
 
   const pool = new Pool({
     connectionString: url,
-    // Managed Postgres offerings terminate TLS with their own chain; Vercel's
-    // integration sets sslmode in the URL, so only force it when it is absent.
-    ssl: /sslmode=/.test(url ?? '') ? undefined : { rejectUnauthorized: false },
+    ssl: sslFor(url),
     max: Number(process.env.PGPOOL_MAX ?? 5),
     idleTimeoutMillis: 10_000,
     connectionTimeoutMillis: 15_000,
@@ -91,6 +89,31 @@ export async function create({ url } = {}) {
 }
 
 const BOOTSTRAP_LOCK_KEY = 828_141_207;
+
+/**
+ * TLS laten bepalen door de verbindingsreeks, niet door een gok.
+ *
+ * De beheerde aanbieders (Vercel Postgres, Neon, Supabase) zetten zelf
+ * `sslmode=require` in de URL en presenteren een keten die niet in de
+ * standaard truststore zit; daar hoort verificatie uit. Een server zónder TLS
+ * — een lokale databank, een container in hetzelfde netwerk — moet gewoon
+ * kunnen verbinden. DATABASE_SSL overschrijft alles, voor het geval de URL
+ * niet aangepast kan worden.
+ */
+export function sslFor(url) {
+  let mode = process.env.DATABASE_SSL;
+  if (!mode) {
+    try {
+      mode = new URL(url).searchParams.get('sslmode') ?? undefined;
+    } catch {
+      mode = undefined;
+    }
+  }
+
+  if (!mode || mode === 'disable' || mode === 'prefer' || mode === 'allow') return false;
+  if (mode === 'require' || mode === 'no-verify') return { rejectUnauthorized: false };
+  return true; // verify-ca / verify-full: volledige verificatie tegen de systeemtruststore
+}
 
 /**
  * Rewrite `?` placeholders to $1..$n, leaving anything inside string literals
