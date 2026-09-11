@@ -107,13 +107,22 @@ async function boot() {
  * diagnose op bij /api/health en zet ze erbij.
  */
 async function renderBootFailure(err) {
-  let health = null;
-  try {
-    const response = await fetch('/api/health');
-    health = await response.json();
-  } catch {
-    /* ook de diagnose is onbereikbaar; dan blijft de oorspronkelijke fout over */
+  // Een opstartfout stuurt de diagnose al mee in het antwoord zelf; alleen als
+  // die er niet is, wordt /api/health er apart bij gehaald.
+  let health = err?.payload?.health ?? null;
+  if (!health) {
+    try {
+      const response = await fetch('/api/health');
+      health = await response.json();
+    } catch {
+      /* ook de diagnose is onbereikbaar; dan blijft de oorspronkelijke fout over */
+    }
   }
+
+  // De technische regel: de databankfout als die er is, anders wat de server
+  // over dít verzoek zei. Zonder deze regel blijft "er ging intern iets mis"
+  // over, en daar kan niemand iets mee.
+  const technical = health?.error ?? err?.detail ?? null;
 
   const rows = health
     ? [
@@ -137,7 +146,8 @@ async function renderBootFailure(err) {
           div(
             { class: 'grow' },
             div({ class: 'banner__title' }, 'De toepassing kon niet starten'),
-            div({}, health?.error ?? err.message),
+            div({}, err.message),
+            technical ? div({ class: 'mono small mt-1' }, technical) : null,
             health?.hint ? div({ class: 'mt-1' }, health.hint) : null,
           ),
         ),
@@ -151,7 +161,7 @@ async function renderBootFailure(err) {
               ),
             )
           : null,
-        adviceFor(health),
+        adviceFor(health, err),
         div({ class: 'tiny muted mt-2' }, 'Volledige diagnose: /api/health'),
       ),
     ),
@@ -162,11 +172,23 @@ async function renderBootFailure(err) {
  * Advies dat bij de vastgestelde toestand past. Een foutscherm dat naast de
  * kwestie praat, kost meer tijd dan het bespaart.
  */
-function adviceFor(health) {
-  if (!health) return null;
-
+function adviceFor(health, err) {
   const panel = (title, ...body) =>
     div({ class: 'panel mt-2' }, div({ class: 'panel__kicker mb-1' }, title), div({ class: 'small dim' }, ...body));
+
+  // Geen JSON terug betekent dat het antwoord niet van deze toepassing komt:
+  // de functie is dan al vóór de eerste regel code gestorven, en de reden
+  // staat in het bouw- of runtimelogboek van het platform, niet hier.
+  if (err?.code === 'NON_JSON_RESPONSE' || !health) {
+    return panel(
+      'De functie zelf start niet',
+      'Het antwoord komt niet van deze toepassing, dus de fout ligt vóór de eerste regel toepassingscode: een ontbrekende afhankelijkheid, een te oude Node-versie of een mislukte build. Kijk in het runtimelogboek van de uitrol. Vereist is Node 22.5 of hoger, en ',
+      span({ class: 'mono' }, 'pg'),
+      ' moet geïnstalleerd zijn als er een ',
+      span({ class: 'mono' }, 'DATABASE_URL'),
+      ' ingesteld is.',
+    );
+  }
 
   if (health.driver === 'sqlite' && health.serverless && !health.databaseUrlSet) {
     return panel(

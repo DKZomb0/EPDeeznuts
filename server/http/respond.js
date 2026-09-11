@@ -37,9 +37,24 @@ export function fail(res, err) {
     error: {
       code: err?.code ?? (status >= 500 ? 'INTERNAL' : 'REQUEST_FAILED'),
       message: status >= 500 ? 'Er ging intern iets mis. Probeer opnieuw of neem contact op met de beheerder.' : err.message,
-      detail: err?.detail ?? null,
+      detail: err?.detail ?? (status >= 500 ? technicalDetail(err) : null),
     },
   });
+}
+
+/**
+ * Bij een 500 gaat de oorzaak anders alleen naar een serverlog. Op een
+ * beheerd platform betekent dat: onvindbaar voor wie het probleem meldt, en
+ * dus een ronde heen en weer per fout. De boodschap voor de gebruiker blijft
+ * neutraal; dit veld staat ernaast voor wie het nodig heeft. Het bevat
+ * technische tekst van de databank of de runtime, geen dossiergegevens.
+ * Zet EPD_VERBOSE_ERRORS=0 om het weg te laten.
+ */
+function technicalDetail(err) {
+  if (process.env.EPD_VERBOSE_ERRORS === '0') return null;
+  const name = err?.name && err.name !== 'Error' ? `${err.name}: ` : '';
+  const message = err?.message ?? String(err);
+  return `${name}${message}`.slice(0, 500);
 }
 
 export class HttpError extends Error {

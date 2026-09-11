@@ -12,6 +12,9 @@ export class ApiError extends Error {
     this.status = status;
     this.code = payload?.error?.code ?? null;
     this.detail = payload?.error?.detail ?? null;
+    // Het volledige antwoord blijft bewaard: een opstartfout stuurt de
+    // diagnose mee naast de foutboodschap.
+    this.payload = payload ?? null;
   }
 }
 
@@ -26,7 +29,23 @@ async function request(method, path, body = null) {
   if (response.status === 204) return null;
 
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
+  let payload = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    // Niet alles wat antwoordt is deze toepassing: een hostingplatform zet er
+    // bij een mislukte functie zijn eigen HTML-foutpagina neer. Daarop
+    // struikelen betekent dat de échte fout nooit op het scherm komt, dus
+    // wordt de ruwe tekst hier bewaard in plaats van weggegooid.
+    payload = {
+      error: {
+        code: 'NON_JSON_RESPONSE',
+        message: `De server antwoordde met ${response.status}, maar niet met JSON — dit komt niet van de toepassing zelf.`,
+        detail: text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400),
+      },
+    };
+    throw new ApiError(response.status, payload);
+  }
 
   if (!response.ok) throw new ApiError(response.status, payload);
   return payload;

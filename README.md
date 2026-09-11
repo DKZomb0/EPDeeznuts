@@ -190,6 +190,16 @@ Draaien op een gewone server kan ook: `npm start` bedient API én client op éé
 
 Start de toepassing niet, dan toont het scherm zelf diezelfde diagnose met advies dat bij de vastgestelde toestand past.
 
+Hoe een fout eruitziet, hangt af van waar ze zit — en dat verschil is bewust zichtbaar gemaakt, omdat "er ging intern iets mis" niemand verder helpt:
+
+| Antwoord | Betekenis | Waar zoeken |
+| --- | --- | --- |
+| `503` met `DATABASE_UNAVAILABLE` | De toepassing draait, de databank niet. De reden staat in `error.detail`, de volledige diagnose in `health`. | `DATABASE_URL`, bereikbaarheid, TLS |
+| `500` met `INTERNAL` | Een fout in de afhandeling van dít verzoek. De boodschap blijft neutraal; `error.detail` bevat de technische reden. | de fouttekst in `detail` |
+| Geen JSON terug | Het antwoord komt niet van deze toepassing: de functie is gestorven vóór de eerste regel code. | het runtimelogboek van het platform |
+
+`error.detail` bij een 500 bevat foutteksten van de databank of de runtime, geen dossiergegevens. Zet `EPD_VERBOSE_ERRORS=0` om het veld weg te laten.
+
 De testsuite draait desgewenst tegen Postgres in plaats van SQLite, zodat de uitrolvariant niet alleen op goed vertrouwen berust:
 
 ```bash

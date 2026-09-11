@@ -55,7 +55,23 @@ export async function handleRequest(req, res, { serveAssets = false } = {}) {
       return json(res, info.ready ? 200 : 503, info);
     }
 
-    await ready();
+    // Een mislukte opstart is geen interne fout van dit verzoek: het is een
+    // uitrolprobleem, en de enige die het kan oplossen zit voor het scherm.
+    // Daarom 503 mét de diagnose in de body, in plaats van een kale 500 die de
+    // reden alleen in een serverlog achterlaat.
+    try {
+      await ready();
+    } catch (err) {
+      const info = await diagnostics();
+      return json(res, 503, {
+        error: {
+          code: 'DATABASE_UNAVAILABLE',
+          message: 'De databank is niet beschikbaar. Zie de diagnose hieronder of /api/health.',
+          detail: info.error ?? err.message,
+        },
+        health: info,
+      });
+    }
 
     // Cheap housekeeping, at most once a minute per instance.
     if (Date.now() - lastPurge > 60_000) {
