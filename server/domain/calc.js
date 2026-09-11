@@ -122,15 +122,32 @@ export function declaredUnitKg(declaredUnit, density) {
  * @param {number} [options.volumeM3]  when set, totals are also given absolute
  */
 export async function calculateRecipeVersion(recipeVersionId, options = {}) {
-  const at = options.at ?? nowIso();
-  const scope = options.scope ?? 'A1-A3';
-  const modules = SCOPE_MODULES[scope] ?? PRODUCT_MODULES;
-
   const version = await get('SELECT * FROM recipe_versions WHERE id = ?', [recipeVersionId]);
   if (!version) throw new Error(`recipe version ${recipeVersionId} not found`);
+
   const recipe = await get('SELECT * FROM recipes WHERE id = ?', [version.recipe_id]);
   const components = await componentsOf(recipeVersionId);
   const parameters = await parametersOf(recipeVersionId);
+
+  return calculateComposition({ recipe, version, components, parameters }, options);
+}
+
+/**
+ * Dezelfde motor op een samenstelling die (nog) niet opgeslagen is.
+ *
+ * Het rekenblad rekent mee terwijl de producent doseringen aanpast; die
+ * voorbeeldberekening moet door exact dezelfde code lopen als de versie die
+ * later ingediend wordt. Twee rekenpaden die uit elkaar groeien is precies het
+ * soort verschil dat een verificateur terecht niet vertrouwt.
+ *
+ * @param {object} subject   { recipe, version?, components, parameters }
+ *        `components` hebben de vorm die `componentsOf()` teruggeeft.
+ */
+export async function calculateComposition({ recipe, version, components, parameters }, options = {}) {
+  const at = options.at ?? nowIso();
+  const scope = options.scope ?? 'A1-A3';
+  const modules = SCOPE_MODULES[scope] ?? PRODUCT_MODULES;
+  const recipeVersionId = version?.id ?? null;
 
   const trace = [];
   const byModule = Object.fromEntries(MODULE_CODES.map((m) => [m, emptyVector()]));
@@ -223,9 +240,9 @@ export async function calculateRecipeVersion(recipeVersionId, options = {}) {
       strengthClass: recipe?.strength_class,
       exposureClasses: recipe?.exposure_classes,
       density: recipe?.density,
-      versionNo: version.version_no,
-      versionStatus: version.status,
-      effectiveFrom: version.effective_from,
+      versionNo: version?.version_no ?? null,
+      versionStatus: version?.status ?? 'PREVIEW',
+      effectiveFrom: version?.effective_from ?? at,
     },
     totals,
     byModule: Object.fromEntries(MODULE_CODES.map((m) => [m, byModule[m]])),
@@ -299,6 +316,9 @@ async function addComponent({ component, at, trace, byModule, judgements }) {
     declaredUnit: component.declared_unit,
     evidence: evidenceSummary(evidence, evidenceJudgement),
     contribution: emptyVector(),
+    // Per module apart, zodat een scherm de A1- en A2-bijdrage van één regel
+    // kan tonen zonder de trace op labeltekst te moeten uitkammen.
+    byModule: { A1: emptyVector(), A2: emptyVector() },
   };
 
   // The supplier's whole cradle-to-gate bundle becomes our A1, one trace line
@@ -309,6 +329,7 @@ async function addComponent({ component, at, trace, byModule, judgements }) {
     const contribution = scale(vector, ratio);
     addInto(byModule.A1, contribution);
     addInto(summary.contribution, contribution);
+    addInto(summary.byModule.A1, contribution);
 
     trace.push({
       module: 'A1',
@@ -367,6 +388,7 @@ async function addComponent({ component, at, trace, byModule, judgements }) {
       const contribution = scale(profile.values, tkm);
       addInto(byModule.A2, contribution);
       addInto(summary.contribution, contribution);
+      addInto(summary.byModule.A2, contribution);
       summary.transportProfile = profile.name;
 
       trace.push({

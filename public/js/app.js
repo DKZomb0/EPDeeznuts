@@ -1,13 +1,13 @@
 /**
- * Application shell: session, hash router, navigation.
+ * Schil: sessie, hash-router, navigatie.
  *
- * Hash routing on purpose - it means the whole client is a static bundle that
- * needs no server rewrites, which is what lets it sit in public/ on Vercel and
- * be served from the edge.
+ * Hash-routing met opzet — de client is daardoor een statische bundel die geen
+ * rewrites nodig heeft, wat hem op Vercel rechtstreeks vanaf de edge laat
+ * serveren.
  */
 import { api } from './lib/api.js';
-import { tags, mount, h } from './lib/dom.js';
-import { setReference, toast } from './lib/ui.js';
+import { tags, mount } from './lib/dom.js';
+import { setReference, toast, modal, btn, seg, logList, empty, icon } from './lib/ui.js';
 import { initials } from './lib/format.js';
 import { renderLogin } from './views/login.js';
 
@@ -18,6 +18,8 @@ export const state = {
   capabilities: [],
   reference: {},
   notifications: [],
+  counts: {},
+  personas: { accounts: [], password: null },
 };
 
 export const can = (capability) => state.capabilities.includes(capability);
@@ -32,55 +34,51 @@ const ROUTES = [
   { path: '/', load: () => import('./views/dashboard.js'), title: 'Overzicht' },
   { path: '/materials', load: () => import('./views/materials.js'), title: 'Grondstoffen' },
   { path: '/materials/:id', load: () => import('./views/material-detail.js'), title: 'Grondstof' },
-  { path: '/access', load: () => import('./views/access.js'), title: 'Toegangsbeheer' },
+  { path: '/access', load: () => import('./views/access.js'), title: 'Toegangsaanvragen' },
   { path: '/recipes', load: () => import('./views/recipes.js'), title: 'Recepturen' },
   { path: '/recipes/:id', load: () => import('./views/recipe-detail.js'), title: 'Receptuur' },
-  { path: '/versions/:id', load: () => import('./views/version-detail.js'), title: 'Receptuurversie' },
+  { path: '/versions/:id', load: () => import('./views/version-detail.js'), title: 'Rekenblad' },
   { path: '/declarations', load: () => import('./views/declarations.js'), title: 'Declaraties' },
-  { path: '/declarations/:id', load: () => import('./views/declaration-detail.js'), title: 'Declaratie' },
-  { path: '/verification', load: () => import('./views/verification.js'), title: 'Verificatie' },
-  { path: '/verification/:id', load: () => import('./views/declaration-detail.js'), title: 'Verificatie' },
+  { path: '/declarations/:id', load: () => import('./views/declaration-detail.js'), title: 'Dossier' },
+  { path: '/verification', load: () => import('./views/verification.js'), title: 'Verificatiedossiers' },
+  { path: '/verification/:id', load: () => import('./views/declaration-detail.js'), title: 'Dossier' },
   { path: '/projects', load: () => import('./views/projects.js'), title: 'Projecten' },
   { path: '/projects/:id', load: () => import('./views/project-detail.js'), title: 'Project' },
   { path: '/deliveries/:id', load: () => import('./views/delivery-detail.js'), title: 'Levering' },
-  { path: '/sector', load: () => import('./views/sector.js'), title: 'Sectorgemiddelden' },
-  { path: '/reference', load: () => import('./views/reference.js'), title: 'Rekenregels en masterdata' },
+  { path: '/sector', load: () => import('./views/sector.js'), title: 'Generieke waarden' },
+  { path: '/reference', load: () => import('./views/reference.js'), title: 'Rekenregels' },
   { path: '/audit', load: () => import('./views/audit.js'), title: 'Audittrail' },
 ];
 
-/** Navigation, filtered per organisation type. */
+/** Navigatie per organisatietype, met icoon en teller zoals in het ontwerp. */
 function navigation() {
   const type = state.user.orgType;
-  const groups = [
+  const c = state.counts;
+
+  const items = [
+    { href: '#/', icon: 'chart', label: 'Overzicht', all: true },
     {
-      label: 'Werk',
-      items: [
-        { href: '#/', icon: '▤', label: 'Overzicht', all: true },
-        { href: '#/materials', icon: '◇', label: type === 'SUPPLIER' ? 'Mijn grondstoffen' : 'Grondstofcatalogus', all: true },
-        { href: '#/access', icon: '⇄', label: 'Toegangsbeheer', when: ['SUPPLIER', 'PRODUCER', 'CONTRACTOR'] },
-        { href: '#/recipes', icon: '▦', label: 'Recepturen', when: ['PRODUCER', 'VERIFIER', 'FEDERATION', 'REGULATOR'] },
-        { href: '#/declarations', icon: '▣', label: 'Declaraties', when: ['PRODUCER', 'FEDERATION', 'REGULATOR'] },
-        { href: '#/verification', icon: '✓', label: 'Verificatiedossiers', when: ['VERIFIER'] },
-        { href: '#/projects', icon: '⌂', label: 'Projecten en leveringen', when: ['CONTRACTOR', 'PRODUCER', 'VERIFIER', 'REGULATOR'] },
-      ],
+      href: '#/materials',
+      icon: 'stack',
+      label: type === 'SUPPLIER' ? 'Grondstoffen' : 'Grondstofcatalogus',
+      badge: c.materials,
+      all: true,
     },
-    {
-      label: 'Sector',
-      items: [
-        { href: '#/sector', icon: '∑', label: 'Sectorgemiddelden', when: ['FEDERATION', 'REGULATOR', 'PRODUCER', 'VERIFIER'] },
-        { href: '#/reference', icon: '𝑓', label: 'Rekenregels', all: true },
-        { href: '#/audit', icon: '⧉', label: 'Audittrail', all: true },
-      ],
-    },
+    { href: '#/access', icon: 'lock', label: 'Toegangsaanvragen', badge: c.access, when: ['SUPPLIER', 'PRODUCER', 'CONTRACTOR'] },
+    { href: '#/recipes', icon: 'list', label: 'Recepturen', badge: c.recipes, when: ['PRODUCER', 'VERIFIER', 'FEDERATION', 'REGULATOR'] },
+    { href: '#/declarations', icon: 'fileText', label: 'Declaraties', badge: c.declarations, when: ['PRODUCER', 'FEDERATION', 'REGULATOR'] },
+    { href: '#/verification', icon: 'sealCheck', label: 'Verificatiedossiers', badge: c.verification, when: ['VERIFIER'] },
+    { href: '#/projects', icon: 'truck', label: 'Leveringen', badge: c.deliveries ?? c.projects, when: ['CONTRACTOR', 'PRODUCER', 'VERIFIER', 'REGULATOR'] },
+    { href: '#/sector', icon: 'buildings', label: 'Generieke waarden', when: ['FEDERATION', 'REGULATOR', 'PRODUCER', 'VERIFIER'] },
+    { href: '#/reference', icon: 'calculator', label: 'Rekenregels', all: true },
+    { href: '#/audit', icon: 'history', label: 'Audittrail', all: true },
   ];
 
-  return groups
-    .map((group) => ({ ...group, items: group.items.filter((item) => item.all || item.when.includes(type)) }))
-    .filter((group) => group.items.length);
+  return items.filter((item) => item.all || item.when.includes(type));
 }
 
 /* ------------------------------------------------------------------ */
-/* Boot                                                                */
+/* Opstart                                                             */
 /* ------------------------------------------------------------------ */
 
 async function boot() {
@@ -90,6 +88,7 @@ async function boot() {
     state.capabilities = me.capabilities;
     state.reference = reference;
     setReference(reference);
+    await Promise.all([loadCounts(), loadPersonas()]);
     renderShell();
     await route();
   } catch (err) {
@@ -104,92 +103,159 @@ async function boot() {
 async function onAuthenticated(session) {
   state.user = session.user;
   state.capabilities = session.capabilities;
-  const reference = await api.get('/reference');
-  state.reference = reference;
-  setReference(reference);
+  state.reference = await api.get('/reference');
+  setReference(state.reference);
+  await Promise.all([loadCounts(), loadPersonas()]);
   location.hash = '#/';
   renderShell();
   await route();
 }
 
+async function loadCounts() {
+  try {
+    const { counts } = await api.get('/navcounts');
+    state.counts = counts;
+  } catch {
+    state.counts = {};
+  }
+}
+
+async function loadPersonas() {
+  try {
+    state.personas = await api.get('/auth/demo-accounts');
+  } catch {
+    state.personas = { accounts: [], password: null };
+  }
+}
+
 /* ------------------------------------------------------------------ */
-/* Shell                                                               */
+/* Schil                                                               */
 /* ------------------------------------------------------------------ */
 
 let outlet;
 let navHost;
-let titleHost;
-let crumbHost;
+let topbarRight;
 
 function renderShell() {
   root.className = '';
   outlet = main({ class: 'main' });
   navHost = nav({ class: 'sidenav' });
-  titleHost = div({ class: 'topbar__title' });
-  crumbHost = div({ class: 'topbar__crumb' });
+  topbarRight = div({ class: 'topbar__right' });
 
   mount(
     root,
     div(
       { class: 'shell' },
       header(
-        { class: 'brand' },
-        div({ class: 'brand__mark' }, 'E'),
-        div({}, div({ class: 'brand__name' }, 'EPDeeznuts'), div({ class: 'brand__sub' }, 'Milieudeclaraties beton')),
-      ),
-      div(
         { class: 'topbar' },
-        div({ class: 'topbar__context' }, titleHost, crumbHost),
-        div({ class: 'topbar__actions' }, notificationButton(), whoButton()),
+        div(
+          { class: 'wordmark' },
+          span({ class: 'wordmark__name' }, 'Materia'),
+          span({ class: 'wordmark__sub' }, 'Milieudeclaratie beton · Vlaanderen'),
+        ),
+        span({ class: 'chip-poc' }, 'Proof of concept'),
+        topbarRight,
       ),
-      navHost,
-      outlet,
+      div({ class: 'body' }, navHost, outlet),
     ),
   );
 
+  renderTopbarRight();
   renderNav();
   refreshNotifications();
 }
 
-function renderNav() {
-  const current = currentPath();
+/**
+ * De rolwissel uit het ontwerp. In de demo-opstelling meldt hij echt aan als
+ * die persona in plaats van alleen de weergave te veranderen — anders zou het
+ * platform rechten voorwenden die het niet afdwingt. Zonder demodata valt de
+ * schakelaar gewoon weg.
+ */
+function renderTopbarRight() {
+  const byType = new Map();
+  for (const account of state.personas.accounts ?? []) {
+    if (!byType.has(account.org_type)) byType.set(account.org_type, account);
+  }
+
+  const labels = state.reference.orgTypeLabels ?? {};
+  const shortLabel = {
+    SUPPLIER: 'Leverancier',
+    PRODUCER: 'Producent',
+    CONTRACTOR: 'Aannemer',
+    VERIFIER: 'Verificateur',
+    FEDERATION: 'Federatie',
+    REGULATOR: 'Overheid',
+  };
+
+  const personaSwitch =
+    byType.size > 1 && state.personas.password
+      ? [
+          span({ class: 'topbar__label' }, 'Rol'),
+          seg(
+            [...byType.keys()].map((type) => ({ key: type, label: shortLabel[type] ?? labels[type] ?? type })),
+            state.user.orgType,
+            async (type) => {
+              const account = byType.get(type);
+              if (!account || type === state.user.orgType) return;
+              try {
+                const session = await api.post('/auth/login', { email: account.email, password: state.personas.password });
+                await onAuthenticated(session);
+              } catch (err) {
+                toast(err.message, 'bad');
+              }
+            },
+          ),
+        ]
+      : [];
+
   mount(
-    navHost,
-    navigation().map((group) =>
-      div(
-        { class: 'sidenav__group' },
-        div({ class: 'sidenav__label' }, group.label),
-        group.items.map((item) => {
-          const path = item.href.slice(1);
-          const active = path === '/' ? current === '/' : current.startsWith(path);
-          return a(
-            { href: item.href, class: active ? 'is-active' : '' },
-            span({ class: 'sidenav__icon' }, item.icon),
-            span({}, item.label),
-            item.badge ? span({ class: 'sidenav__count' }, item.badge) : null,
-          );
-        }),
+    topbarRight,
+    ...personaSwitch,
+    notificationButton(),
+    button(
+      {
+        class: 'usermenu',
+        title: 'Afmelden',
+        type: 'button',
+        onClick: async () => {
+          await api.post('/auth/logout');
+          location.hash = '#/';
+          location.reload();
+        },
+      },
+      span({ class: 'avatar' }, initials(state.user.name)),
+      span(
+        { class: 'usermenu__text' },
+        span({ class: 'usermenu__name' }, state.user.name),
+        span({ class: 'usermenu__org' }, state.user.orgName),
       ),
+      icon('signOut', { size: 15, className: 'muted' }),
     ),
   );
 }
 
-function whoButton() {
-  return button(
-    {
-      class: 'who',
-      onClick: async () => {
-        await api.post('/auth/logout');
-        location.hash = '#/';
-        location.reload();
-      },
-      title: 'Afmelden',
-    },
-    div({ class: 'who__avatar' }, initials(state.user.name)),
+function renderNav() {
+  const current = currentPath();
+  const settings = state.reference.settings ?? {};
+
+  mount(
+    navHost,
+    div({ class: 'sidenav__label' }, state.reference.orgTypeLabels?.[state.user.orgType] ?? state.user.orgType),
+    navigation().map((item) => {
+      const path = item.href.slice(1);
+      const active = path === '/' ? current === '/' : current.startsWith(path);
+      return a(
+        { href: item.href, class: active ? 'is-active' : '' },
+        icon(item.icon, { size: 17 }),
+        span({ class: 'sidenav__text' }, item.label),
+        item.badge ? span({ class: 'sidenav__badge' }, String(item.badge)) : null,
+      );
+    }),
     div(
-      { class: 'who__text' },
-      div({ class: 'who__name' }, state.user.name),
-      div({ class: 'who__org' }, `${state.user.orgName} · ${state.reference.orgTypeLabels?.[state.user.orgType] ?? state.user.orgType}`),
+      { class: 'sidenav__foot' },
+      div({ class: 'sidenav__rule' }),
+      'Rekenregels EN 15804+A2 · EN 16757',
+      div({}, `Auto-validatie binnen ±${settings.bypass_tolerance_pct ?? 3}%`),
     ),
   );
 }
@@ -202,13 +268,9 @@ function notificationButton() {
     mount(
       host,
       button(
-        {
-          class: 'btn btn--ghost btn--small',
-          title: 'Meldingen',
-          onClick: () => showNotifications(),
-        },
-        '🔔',
-        unseen ? span({ class: 'sidenav__count is-alert' }, String(unseen)) : null,
+        { class: 'btn btn-ghost btn-sm', title: 'Meldingen', type: 'button', onClick: showNotifications },
+        icon('bell', { size: 16 }),
+        unseen ? span({ class: 'tag tag-accent', style: { padding: '0 5px' } }, String(unseen)) : null,
       ),
     );
   };
@@ -227,26 +289,30 @@ async function refreshNotifications() {
     state.notifications = notifications;
     notificationHost?.refresh?.();
   } catch {
-    /* notifications are decoration; never block the app on them */
+    /* meldingen zijn versiering; de toepassing mag er nooit op blijven hangen */
   }
 }
 
-async function showNotifications() {
-  const { modal, timeline, empty } = await import('./lib/ui.js');
+function showNotifications() {
   modal({
     title: 'Meldingen',
     hint: 'Systeemberichten voor uw organisatie.',
     body: state.notifications.length
-      ? timeline(
-          state.notifications.map((n) => ({ ts: n.created_at, summary: n.title, actor_label: n.body ?? '' })),
-          { highlight: (_, i) => i === 0 },
+      ? logList(
+          state.notifications.map((n) => ({ ts: n.created_at, actor_label: n.title, summary: n.body ?? '' })),
+          { limit: 20 },
         )
       : empty('Geen meldingen'),
-    actions: (close) => [button({ class: 'btn', onClick: close }, 'Sluiten')],
+    actions: (close) => [btn('Sluiten', { variant: 'secondary', onClick: close })],
   });
-  await api.post('/notifications/seen');
-  state.notifications = state.notifications.map((n) => ({ ...n, seen: 1 }));
-  notificationHost?.refresh?.();
+
+  api
+    .post('/notifications/seen')
+    .then(() => {
+      state.notifications = state.notifications.map((n) => ({ ...n, seen: 1 }));
+      notificationHost?.refresh?.();
+    })
+    .catch(() => {});
 }
 
 /* ------------------------------------------------------------------ */
@@ -295,40 +361,44 @@ async function route() {
   window.scrollTo(0, 0);
 
   if (!matched) {
-    setTitle('Niet gevonden', path);
-    mount(outlet, div({ class: 'empty' }, div({ class: 'empty__title' }, 'Deze pagina bestaat niet'), h('p', {}, path)));
+    setTitle('Niet gevonden');
+    mount(outlet, div({ class: 'empty' }, div({ class: 'empty__title' }, 'Deze pagina bestaat niet'), span({}, path)));
     return;
   }
 
-  setTitle(matched.route.title, '');
+  setTitle(matched.route.title);
   mount(outlet, div({ class: 'empty' }, 'Bezig met laden…'));
 
   try {
     const module = await matched.route.load();
-    if (token !== renderToken) return; // a newer navigation won
-    await module.render(outlet, { params: matched.params, setTitle, navigate, refreshNotifications });
+    if (token !== renderToken) return; // een nieuwere navigatie won
+    await module.render(outlet, { params: matched.params, setTitle, navigate, refresh });
   } catch (err) {
     if (token !== renderToken) return;
     console.error(err);
     mount(
       outlet,
       div(
-        { class: 'note note--bad' },
-        span({ class: 'note__icon' }, '✕'),
-        div({}, h('strong', {}, 'Deze pagina kon niet geladen worden. '), err.message),
+        { class: 'banner banner--neutral' },
+        icon('warning', { size: 19, className: 'banner__icon' }),
+        div({}, div({ class: 'banner__title' }, 'Deze pagina kon niet geladen worden'), div({}, err.message)),
       ),
     );
   }
 }
 
-export function setTitle(title, crumb = '') {
-  if (titleHost) mount(titleHost, title);
-  if (crumbHost) mount(crumbHost, crumb);
-  document.title = `${title} — EPDeeznuts`;
+export function setTitle(title) {
+  document.title = `${title} — Materia`;
 }
 
 export function navigate(path) {
   location.hash = path.startsWith('#') ? path : `#${path}`;
+}
+
+/** Tellers en meldingen opnieuw ophalen, bv. na een beslissing. */
+export async function refresh() {
+  await Promise.all([loadCounts(), refreshNotifications()]);
+  renderNav();
 }
 
 window.addEventListener('hashchange', () => {

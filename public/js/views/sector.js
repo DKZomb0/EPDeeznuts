@@ -1,157 +1,171 @@
 /**
- * Sector averages and the TOTEM export.
+ * Generieke waarden → TOTEM.
  *
- * The screen leads with the spread rather than the mean. That is the sector's
- * whole argument to the administration: a single generic figure per strength
- * class hides a range wide enough to make a design calculation meaningless, so
- * the dispersion travels with the number wherever it goes.
+ * Het scherm zet de spreiding vooraan in plaats van het gemiddelde. Dat is het
+ * hele argument richting de administratie: één generiek getal per klasse
+ * verbergt een bandbreedte die breed genoeg is om een ontwerpberekening
+ * betekenisloos te maken, dus reist de spreiding mee met het getal.
  */
 import { api, qs } from '../lib/api.js';
 import { tags, mount } from '../lib/dom.js';
 import { can } from '../app.js';
 import {
-  card, dataTable, stat, badge, note, pageHead, spreadChart, toast, modal, formModal,
-  textField, selectField, ref, empty,
+  panel, card, kpiStrip, tablePanel, banner, tag, pageHead, toast, modal, formModal,
+  rangeBar, btn, textField, selectField, ref, smart, pct, date, empty,
 } from '../lib/ui.js';
-import { smart, date, pct } from '../lib/format.js';
 
-const { div, span, strong, button, p, select, option, pre, small, a } = tags;
+const { div, span, strong, p, pre, select, option, small } = tags;
 
 export async function render(outlet, { setTitle }) {
-  setTitle('Sectorgemiddelden', '');
+  setTitle('Generieke waarden');
 
   let strengthClass = '';
   let method = 'VOLUME_WEIGHTED';
-  const host = div();
+  const host = div({ class: 'stack' });
 
   const load = async () => {
     mount(host, div({ class: 'empty' }, 'Bezig met berekenen…'));
-    const { aggregation } = await api.get(`/aggregation/preview${qs({ strengthClass, method })}`);
-    const { aggregations } = await api.get('/aggregations');
+    const [{ aggregation }, { aggregations }] = await Promise.all([
+      api.get(`/aggregation/preview${qs({ strengthClass, method })}`),
+      api.get('/aggregations'),
+    ]);
     draw(aggregation, aggregations);
   };
 
   const draw = (aggregation, saved) => {
     const unit = aggregation.lead.unit;
+    const scaleMax = aggregation.lead.max * 1.08 || 1;
 
     mount(
       host,
       aggregation.sampleSize === 0
-        ? card('Geen gegevens', empty('Nog geen gepubliceerde declaraties in deze selectie', 'Enkel volledig BEPD-gedekte, gepubliceerde dossiers tellen mee.'))
+        ? panel({ body: empty('Nog geen gepubliceerde declaraties in deze selectie', 'Enkel volledig BEPD-gedekte, gepubliceerde dossiers tellen mee.') })
         : div(
-            {},
-            div(
-              { class: 'grid grid--4 mb-2' },
-              stat({ label: 'Gewogen gemiddelde', value: smart(aggregation.lead.weightedMean), unit, note: 'gewogen op geleverd volume' }),
-              stat({ label: 'Bandbreedte', value: `${smart(aggregation.lead.min)} – ${smart(aggregation.lead.max)}`, unit, note: `spreiding ${pct(aggregation.lead.spreadPct, 0)} t.o.v. het gemiddelde`, tone: 'warn' }),
-              stat({ label: 'Variatiecoëfficiënt', value: pct(aggregation.lead.cv, 1), note: 'standaardafwijking / gemiddelde' }),
-              stat({ label: 'Aantal declaraties', value: String(aggregation.sampleSize), note: `${smart(aggregation.totalWeight)} m³ gewicht` }),
-            ),
+            { class: 'stack' },
+            kpiStrip([
+              { label: 'Gewogen gemiddelde', value: smart(aggregation.lead.weightedMean), note: `${unit} · gewogen op geleverd volume` },
+              { label: 'Bandbreedte', value: `${smart(aggregation.lead.min)} – ${smart(aggregation.lead.max)}`, note: `spreiding ${pct(aggregation.lead.spreadPct, 0)} t.o.v. het gemiddelde` },
+              { label: 'Variatiecoëfficiënt', value: pct(aggregation.lead.cv, 1), note: 'standaardafwijking / gemiddelde' },
+              { label: "BEPD's", value: String(aggregation.sampleSize), note: `${smart(aggregation.totalWeight)} m³ gewicht` },
+            ]),
 
-            note(
-              'warn',
-              strong({}, 'Het gemiddelde alleen is misleidend. '),
-              `De opgenomen declaraties lopen van ${smart(aggregation.lead.min)} tot ${smart(aggregation.lead.max)} ${unit} voor dezelfde toepassing. `,
-              'Een ontwerpberekening op het gemiddelde kan er daardoor ver naast zitten — vandaar dat de spreiding altijd meegepubliceerd wordt.',
-            ),
+            banner('warn', {
+              icon: 'warning',
+              title: 'Het gemiddelde alleen is misleidend',
+              body: `De opgenomen declaraties lopen van ${smart(aggregation.lead.min)} tot ${smart(aggregation.lead.max)} ${unit} voor dezelfde toepassing. Een ontwerpberekening op het gemiddelde kan er daardoor ver naast zitten — vandaar dat de spreiding altijd meegepubliceerd wordt.`,
+            }),
 
-            card(
-              'Opgenomen declaraties',
-              div(
-                {},
-                spreadChart(
-                  [{ label: aggregation.filter.strengthClass ?? 'Alle klassen', min: aggregation.lead.min, max: aggregation.lead.max, mean: aggregation.lead.mean, weightedMean: aggregation.lead.weightedMean }],
-                  { unit },
-                ),
-                dataTable(
-                  [
-                    { label: 'Bron', render: (s) => div({}, strong({}, s.producerRef), span({ class: 'sub' }, s.recipeCode)) },
-                    { label: 'Klasse', render: (s) => s.strengthClass ?? '—' },
-                    { label: 'Omgevingsklassen', render: (s) => span({ class: 'small muted' }, s.exposureClasses ?? '—') },
-                    { label: 'Gewicht', align: 'right', render: (s) => (s.hasDeliveries ? `${smart(s.weight)} m³` : span({ class: 'muted small' }, 'geen leveringen')) },
-                    { label: `GWP (${unit})`, align: 'right', render: (s) => strong({}, smart(s.lead)) },
-                  ],
-                  aggregation.samples,
-                  { compact: true },
-                ),
-              ),
-              {
-                flush: false,
-                hint: 'Producenten worden gepseudonimiseerd: de federatie publiceert een sectorwaarde, geen rangschikking van haar eigen leden.',
-              },
-            ),
-
-            card(
-              'Alle indicatoren',
-              dataTable(
+            panel({
+              title: 'Opgenomen declaraties',
+              sub: 'Producenten worden gepseudonimiseerd: de federatie publiceert een sectorwaarde, geen rangschikking van haar eigen leden.',
+              variant: 'flush',
+              body: tablePanel(
                 [
-                  { label: 'Indicator', render: (r) => div({}, strong({}, r.short), span({ class: 'sub' }, r.label)) },
-                  { label: 'Eenheid', render: (r) => span({ class: 'small muted' }, r.unit) },
+                  { label: 'Bron', render: (s) => div({}, div({ class: 'strong' }, s.producerRef), div({ class: 'sub' }, s.recipeCode)) },
+                  { label: 'Klasse', muted: true, render: (s) => s.strengthClass ?? '—' },
+                  { label: 'Omgevingsklasse', muted: true, render: (s) => s.exposureClasses ?? '—' },
+                  { label: 'Gewicht', align: 'right', muted: true, render: (s) => (s.hasDeliveries ? `${smart(s.weight)} m³` : 'geen leveringen') },
+                  { label: 'Spreiding', width: '24%', render: (s) => rangeBar({ min: 0, max: s.lead, mean: s.lead, scaleMax }) },
+                  { label: `GWP (${unit})`, align: 'right', render: (s) => strong({ class: 'tnum' }, smart(s.lead)) },
+                ],
+                aggregation.samples,
+              ),
+            }),
+
+            panel({
+              title: 'Alle indicatoren',
+              variant: 'flush',
+              body: tablePanel(
+                [
+                  { label: 'Indicator', render: (r) => div({}, div({ class: 'strong' }, r.short), div({ class: 'sub' }, r.label)) },
+                  { label: 'Eenheid', muted: true, render: (r) => r.unit },
                   { label: 'Gewogen gemiddelde', align: 'right', render: (r) => smart(r.stats.weightedMean) },
-                  { label: 'Min', align: 'right', render: (r) => smart(r.stats.min) },
-                  { label: 'Mediaan', align: 'right', render: (r) => smart(r.stats.median) },
-                  { label: 'Max', align: 'right', render: (r) => smart(r.stats.max) },
-                  // Not "σ": the table headers are uppercased in CSS, which would
-                  // turn a lowercase sigma into a summation sign.
-                  { label: 'Std.afw.', align: 'right', render: (r) => smart(r.stats.stdev) },
+                  { label: 'Min', align: 'right', muted: true, render: (r) => smart(r.stats.min) },
+                  { label: 'Mediaan', align: 'right', muted: true, render: (r) => smart(r.stats.median) },
+                  { label: 'Max', align: 'right', muted: true, render: (r) => smart(r.stats.max) },
+                  // Niet "σ": tabelkoppen staan in kapitalen, wat een kleine
+                  // sigma in een somteken zou veranderen.
+                  { label: 'Std.afw.', align: 'right', muted: true, render: (r) => smart(r.stats.stdev) },
                 ],
                 (ref().indicators ?? []).map((indicator) => ({ ...indicator, stats: aggregation.indicators[indicator.code] })),
-                { compact: true },
               ),
-              { flush: true },
-            ),
+            }),
           ),
 
-      card(
-        'Vastgelegde gemiddelden',
-        dataTable(
+      panel({
+        title: 'Vastgelegde gemiddelden',
+        sub: 'Een vastgelegd gemiddelde bevriest de berekening zodat ze later citeerbaar en herleidbaar blijft.',
+        variant: 'flush',
+        body: tablePanel(
           [
             { label: 'Benaming', render: (r) => strong({}, r.label) },
-            { label: 'Klasse', render: (r) => r.strength_class ?? 'alle' },
-            { label: 'Methode', render: (r) => badge(r.method === 'SIMPLE' ? 'Ongewogen' : 'Volumegewogen', 'info') },
-            { label: 'n', align: 'right', render: (r) => String(r.sample_size) },
-            { label: 'Opgesteld', render: (r) => date(r.created_at) },
-            { label: '', align: 'right', render: (r) => button({ class: 'btn btn--small', onClick: () => showTotem(r.id) }, 'TOTEM-export') },
+            { label: 'Klasse', muted: true, render: (r) => r.strength_class ?? 'alle' },
+            { label: 'Methode', render: (r) => tag(r.method === 'SIMPLE' ? 'Ongewogen' : 'Volumegewogen', 'tag-quiet') },
+            { label: "BEPD's", align: 'right', muted: true, render: (r) => String(r.sample_size) },
+            { label: 'Opgesteld', muted: true, render: (r) => date(r.created_at) },
+            { label: '', align: 'right', render: (r) => btn('TOTEM-export', { variant: 'ghost', small: true, icon: 'upload', onClick: () => showTotem(r.id) }) },
           ],
           saved,
-          { compact: true, emptyText: 'Nog geen gemiddelde vastgelegd.' },
+          { emptyTitle: 'Nog geen gemiddelde vastgelegd', emptyText: 'Leg de huidige berekening vast om ernaar te kunnen verwijzen.' },
         ),
-        { flush: true, hint: 'Een vastgelegd gemiddelde bevriest de berekening zodat ze later citeerbaar en herleidbaar blijft.' },
+      }),
+
+      div(
+        { class: 'grid grid--cards' },
+        card({
+          kicker: 'Spreiding is het argument',
+          title: '150 – 600 kg CO₂e/m³',
+          body: 'Eén generiek getal voor "beton" verbergt een factor vier. Zolang de spreiding zichtbaar blijft, blijft de berekening van het materiaalpeil verdedigbaar.',
+        }),
+        card({
+          kicker: 'Twee getallen, één project',
+          title: 'Ontwerp vs. as-built',
+          body: 'De ontwerpwaarde komt uit deze tabel, de as-built waarde uit de effectieve leveringen. Het platform bewaart beide, met de datum waarop ze golden.',
+        }),
+        card({
+          kicker: 'Koppeling',
+          title: 'API in plaats van invoerkracht',
+          body: 'Centrales koppelen hun ERP — drie pakketten dekken de markt. Niemand typt vijfduizend recepturen over.',
+        }),
       ),
     );
   };
 
   mount(
     outlet,
-    pageHead(
-      'Sectorgemiddelden',
-      'Generieke waarden voor de ontwerpfase. Een architect kent in het ontwerp nog niet welke centrale zal leveren; deze cijfers vullen dat gat — samen met hun bandbreedte.',
-      can('aggregation:write') ? [button({ class: 'btn btn--accent', onClick: () => save(strengthClass, method) }, 'Gemiddelde vastleggen')] : null,
-    ),
     div(
-      { class: 'toolbar' },
-      select(
-        {
-          onChange: (e) => {
-            strengthClass = e.target.value;
-            load();
+      { class: 'stack' },
+      pageHead({
+        title: 'Generieke waarden → TOTEM',
+        lede:
+          "Geverifieerde BEPD's worden samengevoegd per sterkte- en omgevingsklasse. De architect rekent in ontwerpfase met deze waarde; de spreiding blijft zichtbaar.",
+        actions: can('aggregation:write') ? [btn('Publiceren naar TOTEM', { variant: 'primary', icon: 'upload', onClick: () => save(strengthClass, method) })] : null,
+      }),
+      div(
+        { class: 'toolbar' },
+        select(
+          {
+            onChange: (e) => {
+              strengthClass = e.target.value;
+              load();
+            },
           },
-        },
-        option({ value: '' }, 'Alle sterkteklassen'),
-        (ref().strengthClasses ?? []).map((c) => option({ value: c.code }, c.code)),
-      ),
-      select(
-        {
-          onChange: (e) => {
-            method = e.target.value;
-            load();
+          option({ value: '' }, 'Alle sterkteklassen'),
+          (ref().strengthClasses ?? []).map((c) => option({ value: c.code }, c.code)),
+        ),
+        select(
+          {
+            onChange: (e) => {
+              method = e.target.value;
+              load();
+            },
           },
-        },
-        option({ value: 'VOLUME_WEIGHTED' }, 'Gewogen op geleverd volume'),
-        option({ value: 'SIMPLE' }, 'Ongewogen gemiddelde'),
+          option({ value: 'VOLUME_WEIGHTED' }, 'Gewogen op geleverd volume'),
+          option({ value: 'SIMPLE' }, 'Ongewogen gemiddelde'),
+        ),
       ),
+      host,
     ),
-    host,
   );
 
   await load();
@@ -163,9 +177,10 @@ function save(strengthClass, method) {
     hint: 'De huidige berekening wordt bevroren en krijgt een eigen kenmerk, zodat ernaar verwezen kan worden.',
     fields: [
       textField('label', 'Benaming', { required: true, placeholder: `Sectorgemiddelde ${strengthClass || 'alle klassen'} ${new Date().getFullYear()}` }),
-      note('muted', `Selectie: ${strengthClass || 'alle sterkteklassen'} · ${method === 'SIMPLE' ? 'ongewogen' : 'volumegewogen'}.`),
+      banner('plain', { icon: 'info', body: `Selectie: ${strengthClass || 'alle sterkteklassen'} · ${method === 'SIMPLE' ? 'ongewogen' : 'volumegewogen'}.` }),
     ],
     submitLabel: 'Vastleggen',
+    submitIcon: 'check',
     onSubmit: async (values, close) => {
       await api.post('/aggregations', { ...values, strengthClass: strengthClass || null, method });
       close();
@@ -182,25 +197,23 @@ async function showTotem(aggregationId) {
     hint: 'De uitwisselvorm met OVAM ligt nog niet vast, dus de payload beschrijft zichzelf: eenheden, bereik en grondslag reizen mee met de cijfers.',
     wide: true,
     body: div(
-      {},
-      note('info', 'Deze structuur bevat naast de waarde ook min, max, standaardafwijking en steekproefgrootte per indicator — een gemiddelde zonder spreiding vertrekt hier niet.'),
-      pre(
-        { style: { background: 'var(--paper-2)', border: '1px solid var(--line)', borderRadius: '6px', padding: '14px', overflow: 'auto', maxHeight: '46vh', fontSize: '11.5px' } },
-        JSON.stringify(payload, null, 2),
-      ),
+      { class: 'flex-col' },
+      banner('plain', {
+        icon: 'info',
+        body: 'Deze structuur bevat naast de waarde ook min, max, standaardafwijking en steekproefgrootte per indicator — een gemiddelde zonder spreiding vertrekt hier niet.',
+      }),
+      pre({ class: 'formula-block', style: { maxHeight: '46vh', overflow: 'auto' } }, JSON.stringify(payload, null, 2)),
     ),
     actions: (close) => [
-      button(
-        {
-          class: 'btn',
-          onClick: async () => {
-            await navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
-            toast('Gekopieerd naar het klembord.', 'ok');
-          },
+      btn('Kopiëren', {
+        variant: 'secondary',
+        icon: 'clipboard',
+        onClick: async () => {
+          await navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+          toast('Gekopieerd naar het klembord.', 'ok');
         },
-        'Kopiëren',
-      ),
-      button({ class: 'btn btn--primary', onClick: close }, 'Sluiten'),
+      }),
+      btn('Sluiten', { variant: 'primary', onClick: close }),
     ],
   });
 }

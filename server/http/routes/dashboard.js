@@ -39,6 +39,44 @@ router.get('/dashboard', async ({ res, user }) => {
   }
 });
 
+/**
+ * Tellers voor de zijbalk. Apart van het dashboard omdat de navigatie
+ * getekend wordt voordat een pagina geladen is.
+ */
+router.get('/navcounts', async ({ res, user }) => {
+  const counts = {};
+
+  switch (user.orgType) {
+    case ORG_TYPES.SUPPLIER:
+      counts.materials = await scalar('SELECT COUNT(*) AS n FROM materials WHERE org_id = ? AND archived = 0', [user.orgId]);
+      counts.access = await scalar("SELECT COUNT(*) AS n FROM access_requests WHERE owner_org_id = ? AND status = 'PENDING'", [user.orgId]);
+      break;
+    case ORG_TYPES.PRODUCER:
+      counts.recipes = await scalar('SELECT COUNT(*) AS n FROM recipes WHERE org_id = ? AND archived = 0', [user.orgId]);
+      counts.declarations = await scalar('SELECT COUNT(*) AS n FROM declarations WHERE org_id = ?', [user.orgId]);
+      counts.access = await scalar("SELECT COUNT(*) AS n FROM access_requests WHERE requester_org_id = ? AND status = 'PENDING'", [user.orgId]);
+      counts.projects = await scalar('SELECT COUNT(DISTINCT project_id) AS n FROM deliveries WHERE producer_org_id = ?', [user.orgId]);
+      break;
+    case ORG_TYPES.CONTRACTOR:
+      counts.projects = await scalar('SELECT COUNT(*) AS n FROM projects WHERE org_id = ? AND archived = 0', [user.orgId]);
+      counts.deliveries = await scalar('SELECT COUNT(*) AS n FROM deliveries WHERE contractor_org_id = ?', [user.orgId]);
+      break;
+    case ORG_TYPES.VERIFIER:
+      counts.verification = await scalar("SELECT COUNT(*) AS n FROM declarations WHERE status IN ('SUBMITTED','UNDER_VERIFICATION')");
+      counts.recipes = await scalar('SELECT COUNT(*) AS n FROM recipes WHERE archived = 0');
+      counts.projects = await scalar('SELECT COUNT(*) AS n FROM projects WHERE archived = 0');
+      break;
+    default:
+      counts.declarations = await scalar("SELECT COUNT(*) AS n FROM declarations WHERE status = 'PUBLISHED'");
+      counts.recipes = await scalar('SELECT COUNT(*) AS n FROM recipes WHERE archived = 0');
+      counts.materials = await scalar('SELECT COUNT(*) AS n FROM materials WHERE archived = 0');
+      break;
+  }
+
+  counts.notifications = await scalar('SELECT COUNT(*) AS n FROM notifications WHERE org_id = ? AND seen = 0', [user.orgId]);
+  ok(res, { counts });
+});
+
 /* ------------------------------------------------------------------ */
 
 async function supplierDashboard(user) {

@@ -1,14 +1,15 @@
 /**
- * Shared interface pieces.
+ * Gedeelde interface-onderdelen, op het nocturne-designsysteem.
  *
- * Kept in one place so the verdict badge on the catalogue and the verdict badge
- * inside a verification dossier are literally the same component - the whole
- * platform hinges on people reading those three states consistently.
+ * Eén plek, zodat het oordeel "geldig / met opmerking / ongeldig" er overal
+ * identiek uitziet — in de catalogus, in het rekenblad en in het
+ * verificatiedossier. Daar hangt het hele platform aan vast.
  */
 import { h, tags, mount } from './dom.js';
-import { num, smart, pct, date, dateTime, VERDICT_TONE, STATUS_TONE, EVIDENCE_TONE, GATE_LABELS } from './format.js';
+import { icon } from './icons.js';
+import { num, smart, pct, date, dateTime, VERDICT_TAG, STATUS_TAG, EVIDENCE_TAG, GATE_LABELS } from './format.js';
 
-const { div, span, p, h2, h3, table, thead, tbody, tr, th, td, button, label, input, select, option, textarea, ul, li, dl, dt, dd, form, strong, small } = tags;
+const { div, span, p, h1, h2, table, thead, tbody, tr, th, td, button, label, input, select, option, textarea, dl, dt, dd, form, strong, small, ul, li, a } = tags;
 
 let reference = {};
 export function setReference(ref) {
@@ -19,91 +20,147 @@ export function ref() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Primitives                                                          */
-/* ------------------------------------------------------------------ */
-
-export function card(title, body, options = {}) {
-  return div(
-    { class: ['card', options.class] },
-    title &&
-      div(
-        { class: 'card__head' },
-        div({}, div({ class: 'card__title' }, title), options.hint && div({ class: 'card__hint' }, options.hint)),
-        options.actions && div({ class: 'btn-row' }, options.actions),
-      ),
-    div({ class: options.flush ? 'card__body card__body--flush' : 'card__body' }, body),
-    options.footer && div({ class: 'card__foot' }, options.footer),
-  );
-}
-
-export function stat({ label: text, value, unit, note, tone }) {
-  return div(
-    { class: ['stat', tone && `stat--${tone}`] },
-    div({ class: 'stat__label' }, text),
-    div({ class: 'stat__value' }, value, unit && span({ class: 'stat__unit' }, unit)),
-    note && div({ class: 'stat__note' }, note),
-  );
-}
-
-export function badge(text, tone = 'muted', options = {}) {
-  return span({ class: `badge badge--${tone}`, title: options.title ?? '' }, options.dot !== false && span({ class: 'badge__dot' }), text);
-}
-
-export function verdictBadge(verdict) {
-  const meta = reference.verdicts?.[verdict];
-  return badge(meta?.label ?? verdict ?? '—', VERDICT_TONE[verdict] ?? 'muted', { title: meta?.description ?? '' });
-}
-
-export function statusBadge(status, labels = reference.declarationStatusLabels) {
-  return badge(labels?.[status] ?? status ?? '—', STATUS_TONE[status] ?? 'muted');
-}
-
-export function evidenceBadge(type) {
-  if (!type) return badge('Geen bewijsstuk', 'bad');
-  const meta = reference.evidenceTypes?.[type];
-  return badge(meta?.short ?? type, EVIDENCE_TONE[type] ?? 'muted', { title: meta?.description ?? '' });
-}
-
-export function note(tone, ...content) {
-  const icons = { ok: '✓', warn: '!', bad: '✕', info: 'i', muted: '·' };
-  return div({ class: `note note--${tone}` }, span({ class: 'note__icon' }, icons[tone] ?? 'i'), div({}, ...content));
-}
-
-export function empty(title, hint, action) {
-  return div({ class: 'empty' }, div({ class: 'empty__title' }, title), hint && p({}, hint), action && div({ class: 'mt-1' }, action));
-}
-
-/* ------------------------------------------------------------------ */
-/* Table                                                               */
+/* Vlakken                                                             */
 /* ------------------------------------------------------------------ */
 
 /**
- * @param {Array<{key,label,align,render,width}>} columns
+ * Een oppervlak. `variant: 'table'` haalt de padding weg zodat een tabel tot
+ * aan de rand loopt, zoals in het ontwerp.
+ */
+export function panel({ kicker, title, sub, actions, body, variant, foot, className } = {}) {
+  const hasHead = kicker || title || sub || actions;
+  return div(
+    { class: ['panel', variant === 'table' && 'panel--table', variant === 'flush' && 'panel--flush', className] },
+    hasHead
+      ? div(
+          { class: 'panel__head panel__head--plain' },
+          div(
+            { class: 'grow' },
+            kicker && div({ class: 'panel__kicker' }, kicker),
+            title && div({ class: 'panel__title' }, title),
+            sub && div({ class: 'panel__sub' }, sub),
+          ),
+          actions && div({ class: 'panel__actions' }, actions),
+        )
+      : null,
+    body,
+    foot && div({ class: 'panel__sub mt-2' }, foot),
+  );
+}
+
+/** Het kleine toelichtingskaartje uit het ontwerp. */
+export function card({ kicker, title, body, className }) {
+  return div(
+    { class: ['card', 'elev-sm', className] },
+    kicker && div({ class: 'card-kicker' }, kicker),
+    title && div({ class: 'card-title' }, title),
+    body && p({ class: 'card-body' }, body),
+  );
+}
+
+/** KPI-strip: één vlak, haarlijnen ertussen. */
+export function kpiStrip(items) {
+  return div(
+    { class: 'kpis' },
+    items.map((item) =>
+      div(
+        { class: ['kpi', item.tone && `kpi--${item.tone}`] },
+        div({ class: 'kpi__label' }, item.label),
+        div({ class: 'kpi__value' }, item.value),
+        item.note && div({ class: 'kpi__note' }, item.note),
+      ),
+    ),
+  );
+}
+
+/** Groot cijfer met eenheid ernaast. */
+export function figure(value, unit) {
+  return div({ class: 'figure' }, span({ class: 'figure__value' }, value), span({ class: 'figure__unit' }, unit));
+}
+
+/* ------------------------------------------------------------------ */
+/* Banners                                                             */
+/* ------------------------------------------------------------------ */
+
+const BANNER_ICON = { accent: 'checkCircle', warn: 'warning', neutral: 'prohibit', plain: 'info' };
+
+export function banner(tone, { icon: iconName, title, body, actions } = {}) {
+  return div(
+    { class: ['banner', tone !== 'accent' && `banner--${tone}`] },
+    icon(iconName ?? BANNER_ICON[tone] ?? 'info', { size: 19, className: 'banner__icon' }),
+    div({ class: 'grow' }, title && div({ class: 'banner__title' }, title), body && div({}, body)),
+    actions && div({ class: 'btn-row' }, actions),
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Tags                                                                */
+/* ------------------------------------------------------------------ */
+
+export function tag(text, cls = 'tag-quiet', opts = {}) {
+  return span({ class: `tag ${cls}`, title: opts.title ?? '' }, opts.icon ? icon(opts.icon, { size: 13 }) : null, text);
+}
+
+export function verdictTag(verdict) {
+  const meta = reference.verdicts?.[verdict];
+  return tag(meta?.label ?? verdict ?? '—', VERDICT_TAG[verdict] ?? 'tag-quiet', { title: meta?.description ?? '' });
+}
+
+export function statusTag(status, labels = reference.declarationStatusLabels) {
+  return tag(labels?.[status] ?? status ?? '—', STATUS_TAG[status] ?? 'tag-quiet');
+}
+
+export function evidenceTag(type) {
+  if (!type) return tag('Geen bron', 'tag-neutral');
+  const meta = reference.evidenceTypes?.[type];
+  return tag(meta?.short ?? type, EVIDENCE_TAG[type] ?? 'tag-quiet', { title: meta?.description ?? '' });
+}
+
+/* ------------------------------------------------------------------ */
+/* Tabel                                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * @param {Array<{label,render,align,width,wrap}>} columns
  * @param {Array<object>} rows
- * @param {object} [options] { onRow, emptyText, compact, rowClass }
+ * @param {object} [options] { onRow, emptyTitle, emptyText, foot }
  */
 export function dataTable(columns, rows, options = {}) {
+  const cols = columns.filter(Boolean);
   if (!rows?.length) return empty(options.emptyTitle ?? 'Nog niets te tonen', options.emptyText);
 
-  return div(
-    { class: 'table-wrap' },
-    table(
-      { class: ['table', options.compact && 'table--compact'] },
-      thead({}, tr({}, columns.map((col) => th({ class: col.align === 'right' ? 'num' : '', style: col.width ? { width: col.width } : {} }, col.label)))),
-      tbody(
+  return table(
+    { class: 'table' },
+    thead(
+      {},
+      tr(
         {},
-        rows.map((row) =>
-          tr(
-            {
-              class: [options.onRow && 'is-clickable', options.rowClass?.(row)],
-              onClick: options.onRow ? () => options.onRow(row) : undefined,
-            },
-            columns.map((col) => td({ class: col.align === 'right' ? 'num' : '' }, col.render ? col.render(row) : row[col.key] ?? '—')),
+        cols.map((col) =>
+          th({ class: col.wrap ? 'wrap' : '', style: { textAlign: col.align ?? 'left', ...(col.width ? { width: col.width } : {}) } }, col.label),
+        ),
+      ),
+    ),
+    tbody(
+      {},
+      rows.map((row) =>
+        tr(
+          { class: [options.onRow && 'is-clickable', options.rowClass?.(row)], onClick: options.onRow ? () => options.onRow(row) : undefined },
+          cols.map((col) =>
+            td(
+              { class: [col.align === 'right' ? 'num' : '', col.wrap ? 'wrap' : '', col.muted ? 'muted-cell' : ''], style: { textAlign: col.align ?? 'left' } },
+              col.render ? col.render(row) : row[col.key] ?? '—',
+            ),
           ),
         ),
       ),
     ),
+    options.foot ? h('tfoot', {}, options.foot) : null,
   );
+}
+
+/** Tabel in een eigen vlak, zoals het ontwerp ze overal zet. */
+export function tablePanel(columns, rows, options = {}) {
+  return panel({ variant: 'table', body: dataTable(columns, rows, options), className: options.className });
 }
 
 export function kv(entries) {
@@ -113,105 +170,181 @@ export function kv(entries) {
   );
 }
 
+export function empty(title, hint, action) {
+  return div({ class: 'empty' }, div({ class: 'empty__title' }, title), hint && p({}, hint), action && div({ class: 'mt-2' }, action));
+}
+
+export function loading(text = 'Bezig met laden…') {
+  return div({ class: 'empty' }, text);
+}
+
+/* ------------------------------------------------------------------ */
+/* Knoppen en schakelaars                                              */
+/* ------------------------------------------------------------------ */
+
+export function btn(text, { variant = 'secondary', icon: iconName, onClick, href, small: isSmall, disabled, title } = {}) {
+  const children = [iconName ? icon(iconName, { size: 15 }) : null, text];
+  const className = ['btn', `btn-${variant}`, isSmall && 'btn-sm'];
+  if (href) return a({ class: className, href, title }, ...children);
+  return button({ class: className, onClick, disabled, title, type: 'button' }, ...children);
+}
+
+/** Segmentkeuze. `options: [{key,label}]` */
+export function seg(options, active, onPick) {
+  return div(
+    { class: 'seg' },
+    options.map((o) =>
+      button(
+        { class: ['seg-opt', o.key === active && 'is-active'], onClick: () => onPick(o.key), type: 'button' },
+        o.label,
+      ),
+    ),
+  );
+}
+
 export function tabs(items, active, onSelect) {
   return div(
     { class: 'tabs' },
-    items.map((item) =>
-      button({ class: item.key === active ? 'is-active' : '', onClick: () => onSelect(item.key) }, item.label),
-    ),
+    items.map((item) => button({ class: item.key === active ? 'is-active' : '', onClick: () => onSelect(item.key), type: 'button' }, item.label)),
   );
 }
 
 /* ------------------------------------------------------------------ */
-/* Charts                                                              */
+/* Formuliervelden                                                     */
 /* ------------------------------------------------------------------ */
 
-const MODULE_COLOURS = { A1: '#16506b', A2: '#2b7f9e', A3: '#4aa3a0', A4: '#7fb069', A5: '#b0ab5b' };
-
-/** Stacked bar of the A1..A5 split, with a legend carrying the real numbers. */
-export function moduleBar(byModule, modules, unit) {
-  const entries = modules.map((code) => ({ code, value: Math.max(0, Number(byModule?.[code] ?? 0)) }));
-  const total = entries.reduce((sum, e) => sum + e.value, 0) || 1;
-
+export function field(labelText, control, { hint, required, style } = {}) {
   return div(
-    {},
-    div(
-      { class: 'modulebar' },
-      entries
-        .filter((e) => e.value > 0)
-        .map((e) =>
-          div(
-            {
-              class: 'modulebar__seg',
-              dataset: { module: e.code },
-              style: { width: `${(e.value / total) * 100}%` },
-              title: `${e.code}: ${smart(e.value)} ${unit} (${((e.value / total) * 100).toFixed(1)} %)`,
-            },
-            (e.value / total) > 0.07 ? e.code : '',
-          ),
-        ),
-    ),
-    div(
-      { class: 'modulebar-legend' },
-      entries.map((e) =>
-        span(
-          {},
-          h('i', { style: { background: MODULE_COLOURS[e.code] } }),
-          `${e.code} · ${smart(e.value)} ${unit}`,
-        ),
-      ),
-    ),
+    { class: 'field', style },
+    labelText ? label({}, labelText, required && span({ class: 'field__req' }, ' *')) : null,
+    control,
+    hint && div({ class: 'field__hint' }, hint),
   );
 }
 
-/**
- * Min-mean-max per group. This chart carries the sector's central argument, so
- * the range is drawn as a band rather than the mean as a single dot.
- */
-export function spreadChart(rows, { unit = '', max: forcedMax = null } = {}) {
-  if (!rows.length) return empty('Nog geen gepubliceerde declaraties om te middelen');
-  const max = forcedMax ?? Math.max(...rows.map((r) => r.max)) * 1.05;
+export function textField(name, labelText, options = {}) {
+  return field(
+    labelText,
+    input({
+      class: 'input',
+      type: options.type ?? 'text',
+      name,
+      value: options.value ?? '',
+      placeholder: options.placeholder ?? '',
+      required: options.required,
+      step: options.step,
+      min: options.min,
+      max: options.max,
+      disabled: options.disabled,
+    }),
+    options,
+  );
+}
 
+export function selectField(name, labelText, options, opts = {}) {
+  return field(
+    labelText,
+    select(
+      { name, required: opts.required, disabled: opts.disabled },
+      opts.placeholder !== false && option({ value: '' }, opts.placeholder ?? '— kies —'),
+      options.map((o) => option({ value: o.value, selected: String(o.value) === String(opts.value) }, o.label)),
+    ),
+    opts,
+  );
+}
+
+export function textAreaField(name, labelText, options = {}) {
+  return field(labelText, textarea({ class: 'input', name, placeholder: options.placeholder ?? '', required: options.required }, options.value ?? ''), options);
+}
+
+export function checkField(name, labelText, options = {}) {
   return div(
-    {},
-    rows.map((row) =>
+    { class: 'field' },
+    label(
+      { class: 'flex', style: { cursor: 'pointer', fontSize: '13px' } },
+      input({ type: 'checkbox', name, checked: !!options.value }),
+      span({}, labelText),
+    ),
+    options.hint && div({ class: 'field__hint' }, options.hint),
+  );
+}
+
+/** Keuzerij met radio, zoals de bronkeuze in het ontwerp. */
+export function pickRow({ active, name, value, title, meta, right, tagEl, onPick }) {
+  return label(
+    { class: ['pickrow', active && 'is-active'] },
+    span(
+      { class: 'radio' },
+      input({ type: 'radio', name, value, checked: !!active, onChange: () => onPick?.(value) }),
+      span({ class: 'dot' }),
+    ),
+    span({ class: 'pickrow__main' }, span({ class: 'pickrow__name' }, title), meta && span({ class: 'pickrow__meta' }, meta)),
+    right && span({ class: 'tnum small dim nowrap' }, right),
+    tagEl,
+  );
+}
+
+export function checkRow({ active, label: text, value, onToggle }) {
+  return label(
+    { class: ['checkrow', active && 'is-active'] },
+    input({ type: 'checkbox', checked: !!active, onChange: () => onToggle?.() }),
+    span({ class: 'grow' }, text),
+    value && span({ class: 'tnum small dim' }, value),
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Grafiek-achtige onderdelen                                          */
+/* ------------------------------------------------------------------ */
+
+/** Horizontale balkjes met labels, zoals de A1/A2/A3-verdeling. */
+export function barLines(entries, { unit = '', quiet = false } = {}) {
+  const max = Math.max(...entries.map((e) => Math.abs(e.value)), 1);
+  return div(
+    { class: 'flex-col', style: { gap: '5.6px' } },
+    entries.map((e) =>
       div(
-        { class: 'spread' },
-        div({ class: 'spread__label' }, row.label ?? row.strengthClass),
-        div(
-          { class: 'spread__track', title: `min ${smart(row.min)} · gemiddelde ${smart(row.mean)} · max ${smart(row.max)} ${unit}` },
-          div({ class: 'spread__range', style: { left: `${(row.min / max) * 100}%`, width: `${Math.max(1, ((row.max - row.min) / max) * 100)}%` } }),
-          div({ class: 'spread__mean', style: { left: `${((row.weightedMean ?? row.mean) / max) * 100}%` } }),
+        { class: 'barline' },
+        span({ class: 'barline__label' }, e.label),
+        span(
+          { class: 'bar', title: `${smart(e.value)} ${unit}` },
+          span({ class: ['bar__fill', quiet && 'bar__fill--quiet'], style: { width: `${(Math.abs(e.value) / max) * 100}%` } }),
         ),
-        div({ class: 'spread__value' }, `${smart(row.weightedMean ?? row.mean)}`, small({ class: 'muted' }, ` (${smart(row.min)}–${smart(row.max)})`)),
+        span({ class: 'barline__value' }, smart(e.value)),
       ),
     ),
   );
 }
 
+/** Min–gemiddelde–max als een span met een streep, voor de spreiding. */
+export function rangeBar({ min, max, mean, scaleMax }) {
+  const top = scaleMax || max || 1;
+  return span(
+    { class: 'rangebar', title: `min ${smart(min)} · gemiddelde ${smart(mean)} · max ${smart(max)}` },
+    span({ class: 'rangebar__span', style: { left: `${(min / top) * 100}%`, width: `${Math.max(1.5, ((max - min) / top) * 100)}%` } }),
+    span({ class: 'rangebar__mean', style: { left: `${(mean / top) * 100}%` } }),
+  );
+}
+
 /* ------------------------------------------------------------------ */
-/* Calculation trace                                                   */
+/* Berekening                                                          */
 /* ------------------------------------------------------------------ */
 
 /**
- * The heart of the transparency requirement: every term with its own inputs,
- * factor, factor source and the evidence behind it.
+ * De trace: elke term met formule, factor, bron en bewijsstuk. Dit is het
+ * onderdeel waar de administratie op toetst, dus het staat er voluit.
  */
-export function traceView(calculation, unit) {
+export function traceView(modules, unit) {
   return div(
     { class: 'trace' },
-    calculation.modules.map((module) =>
+    modules.map((module) =>
       div(
         { class: 'trace__module' },
         div(
           { class: 'trace__head' },
-          div(
-            {},
-            span({ class: 'trace__code' }, module.code),
-            strong({}, module.label),
-            div({ class: 'trace__desc' }, module.description),
-          ),
-          div({ class: 'trace__sum' }, `${smart(module.subtotal)} ${unit}`),
+          span({ class: 'trace__code' }, module.code),
+          div({ class: 'grow' }, div({ class: 'trace__name' }, module.label), div({ class: 'trace__desc' }, module.description)),
+          span({ class: 'trace__sum' }, `${smart(module.subtotal)} ${unit}`),
         ),
         module.lines.length
           ? module.lines.map((line) => traceLine(line, unit))
@@ -228,8 +361,12 @@ function traceLine(line, unit) {
       {},
       div({ class: 'trace__label' }, line.label),
       line.detail && div({ class: 'trace__meta' }, line.detail),
-      line.evidence?.type && div({ class: 'mt-1' }, evidenceBadge(line.evidence.type), line.evidence.number && small({ class: 'muted' }, ` ${line.evidence.number}`)),
-      line.overridden && div({ class: 'mt-1' }, badge('Overschreven', 'warn')),
+      div(
+        { class: 'flex gap-sm mt-1', style: { flexWrap: 'wrap' } },
+        line.evidence?.type ? evidenceTag(line.evidence.type) : null,
+        line.evidence?.number ? span({ class: 'tiny muted mono' }, line.evidence.number) : null,
+        line.overridden ? tag('Eigen waarde', 'tag-outline') : null,
+      ),
     ),
     div(
       {},
@@ -237,109 +374,78 @@ function traceLine(line, unit) {
       line.factor?.source && div({ class: 'trace__source' }, `Bron: ${line.factor.source}`),
       line.justification && div({ class: 'trace__source' }, `Verantwoording: ${line.justification}`),
     ),
-    div({ class: 'trace__value' }, `${smart(line.values?.GWP_TOTAL ?? 0)}`, small({ class: 'muted' }, ` ${unit}`)),
+    div({ class: 'trace__value' }, smart(line.values?.GWP_TOTAL ?? 0), small({ class: 'muted' }, ` ${unit}`)),
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Gate panel                                                          */
-/* ------------------------------------------------------------------ */
-
-/** The change-control or delivery decision, with its checks laid out. */
-export function gatePanel({ decision, title, subtitle, checks }) {
-  const tone = decision === 'GO' || decision === 'AUTO_ACCEPT' ? 'go' : decision === 'NO_GO' ? 'stop' : 'warn';
-  const icon = tone === 'go' ? '✓' : tone === 'stop' ? '✕' : '!';
-
-  return div(
-    { class: 'gate' },
-    div(
-      { class: `gate__verdict gate__verdict--${tone}` },
-      div({ class: 'gate__icon' }, icon),
-      div({}, div({ class: 'gate__title' }, title), subtitle && div({ class: 'gate__sub' }, subtitle)),
-    ),
-    ul(
-      { class: 'gate__checks' },
-      (checks ?? []).map((check) =>
-        li(
-          { class: `gate__check ${check.passed ? 'gate__check--pass' : 'gate__check--fail'}` },
-          h('i', {}, check.passed ? '✓' : '✕'),
-          div({}, check.message),
-        ),
-      ),
-    ),
-  );
-}
-
-export function gateDecisionLabel(decision) {
-  return GATE_LABELS[decision] ?? decision;
-}
-
-/* ------------------------------------------------------------------ */
-/* Timeline                                                            */
-/* ------------------------------------------------------------------ */
-
-export function timeline(entries, { highlight = () => false } = {}) {
-  if (!entries?.length) return empty('Nog geen registraties');
+/** Toetsenlijst van de wijzigingscontrole of de leveringscontrole. */
+export function checklist(items) {
   return ul(
-    { class: 'timeline' },
-    entries.map((entry) =>
+    { class: 'checklist' },
+    items.map((item) =>
       li(
-        { class: highlight(entry) ? 'is-highlight' : '' },
-        div({ class: 'timeline__when' }, dateTime(entry.ts ?? entry.created_at)),
-        div({ class: 'timeline__what' }, entry.summary ?? entry.title),
-        div({ class: 'timeline__who' }, entry.actor_label ?? entry.body ?? ''),
+        {},
+        icon(item.passed ? 'check' : 'x', { size: 15, className: `checklist__mark checklist__mark--${item.passed ? 'pass' : 'fail'}` }),
+        div({ class: 'grow' }, item.message),
       ),
     ),
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Form fields                                                         */
-/* ------------------------------------------------------------------ */
-
-export function field(labelText, control, { hint, required } = {}) {
+export function logList(entries, { limit = 12 } = {}) {
+  if (!entries?.length) return div({ class: 'muted small' }, 'Nog geen registraties.');
   return div(
-    { class: 'field' },
-    label({ class: 'field__label' }, labelText, required && span({ class: 'field__req' }, '*')),
-    control,
-    hint && div({ class: 'field__hint' }, hint),
-  );
-}
-
-export function textField(name, labelText, options = {}) {
-  return field(
-    labelText,
-    input({ type: options.type ?? 'text', name, value: options.value ?? '', placeholder: options.placeholder ?? '', required: options.required, step: options.step, min: options.min, max: options.max }),
-    options,
-  );
-}
-
-export function selectField(name, labelText, options, opts = {}) {
-  return field(
-    labelText,
-    select(
-      { name, required: opts.required },
-      opts.placeholder !== false && option({ value: '' }, opts.placeholder ?? '— kies —'),
-      options.map((o) => option({ value: o.value, selected: String(o.value) === String(opts.value) }, o.label)),
+    { class: 'flex-col', style: { gap: '8.4px' } },
+    entries.slice(0, limit).map((e) =>
+      div(
+        { class: 'logrow' },
+        span({ class: 'logrow__when' }, shortWhen(e.ts ?? e.created_at)),
+        span({ class: 'logrow__what' }, strong({}, e.actor_label ?? e.title ?? 'Systeem'), ' ', e.summary ?? e.body ?? ''),
+      ),
     ),
-    opts,
   );
 }
 
-export function textAreaField(name, labelText, options = {}) {
-  return field(labelText, textarea({ name, placeholder: options.placeholder ?? '', required: options.required }, options.value ?? ''), options);
-}
-
-export function checkField(name, labelText, options = {}) {
-  return div(
-    { class: 'field' },
-    label({ class: 'check' }, input({ type: 'checkbox', name, checked: !!options.value }), span({}, labelText)),
-    options.hint && div({ class: 'field__hint' }, options.hint),
-  );
+function shortWhen(value) {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+  const today = new Date();
+  const sameDay = d.toDateString() === today.toDateString();
+  if (sameDay) return d.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' });
+  const yesterday = new Date(today.getTime() - 86400_000);
+  if (d.toDateString() === yesterday.toDateString()) return 'gisteren';
+  return date(value);
 }
 
 /* ------------------------------------------------------------------ */
-/* Modal & toast                                                       */
+/* Paginakop                                                           */
+/* ------------------------------------------------------------------ */
+
+export function pageHead({ crumb, title, lede, actions }) {
+  return div(
+    { class: 'pagehead' },
+    div(
+      { class: 'pagehead__text' },
+      crumb && crumbBar(crumb),
+      h1({}, title),
+      lede && p({ class: 'pagehead__lede' }, lede),
+    ),
+    actions ? div({ class: 'pagehead__actions' }, actions) : null,
+  );
+}
+
+function crumbBar(items) {
+  const parts = [];
+  items.forEach((item, i) => {
+    if (i) parts.push(icon('caretRight', { size: 11 }));
+    parts.push(item.onClick ? button({ onClick: item.onClick, type: 'button' }, item.label) : span({}, item.label));
+  });
+  return div({ class: 'crumb' }, parts);
+}
+
+/* ------------------------------------------------------------------ */
+/* Modal en toast                                                      */
 /* ------------------------------------------------------------------ */
 
 export function modal({ title, hint, body, actions, wide = false, onClose }) {
@@ -365,8 +471,8 @@ export function modal({ title, hint, body, actions, wide = false, onClose }) {
       { class: ['modal', wide && 'modal--wide'] },
       div(
         { class: 'modal__head' },
-        div({}, h2({}, title), hint && div({ class: 'card__hint' }, hint)),
-        button({ class: 'modal__close', onClick: close, 'aria-label': 'Sluiten' }, '×'),
+        div({ class: 'grow' }, div({ class: 'panel__title' }, title), hint && div({ class: 'panel__sub' }, hint)),
+        button({ class: 'modal__close', onClick: close, 'aria-label': 'Sluiten', type: 'button' }, icon('x', { size: 18 })),
       ),
       div({ class: 'modal__body' }, typeof body === 'function' ? body(close) : body),
       actions && div({ class: 'modal__foot' }, typeof actions === 'function' ? actions(close) : actions),
@@ -374,46 +480,42 @@ export function modal({ title, hint, body, actions, wide = false, onClose }) {
   );
 
   document.body.appendChild(backdrop);
-  const firstInput = backdrop.querySelector('input, select, textarea');
-  firstInput?.focus();
+  backdrop.querySelector('input, select, textarea')?.focus();
   return { close, element: backdrop };
 }
 
-/** Modal wrapping a form; `onSubmit` receives the parsed values. */
-export function formModal({ title, hint, fields, submitLabel = 'Opslaan', onSubmit, wide }) {
+/** Modal met formulier; `onSubmit` krijgt de ingevulde waarden. */
+export function formModal({ title, hint, fields, submitLabel = 'Opslaan', submitIcon, onSubmit, wide }) {
   let formEl;
-  const dialog = modal({
+  return modal({
     title,
     hint,
     wide,
     body: () => {
-      formEl = form({ id: 'modal-form', onSubmit: (e) => e.preventDefault() }, fields);
+      formEl = form({ onSubmit: (e) => e.preventDefault(), class: 'flex-col', style: { gap: '11.2px' } }, fields.filter(Boolean));
       return formEl;
     },
     actions: (close) => [
-      button({ class: 'btn', onClick: close }, 'Annuleren'),
-      button(
-        {
-          class: 'btn btn--accent',
-          onClick: async (event) => {
-            const btn = event.currentTarget;
-            if (!formEl.reportValidity()) return;
-            btn.disabled = true;
-            try {
-              const { formData } = await import('./dom.js');
-              await onSubmit(formData(formEl), close);
-            } catch (err) {
-              toast(err.message, 'bad');
-            } finally {
-              btn.disabled = false;
-            }
-          },
+      btn('Annuleren', { variant: 'ghost', onClick: close }),
+      btn(submitLabel, {
+        variant: 'primary',
+        icon: submitIcon,
+        onClick: async (event) => {
+          const target = event.currentTarget;
+          if (!formEl.reportValidity()) return;
+          target.disabled = true;
+          try {
+            const { formData } = await import('./dom.js');
+            await onSubmit(formData(formEl), close);
+          } catch (err) {
+            toast(err.message, 'bad');
+          } finally {
+            target.disabled = false;
+          }
         },
-        submitLabel,
-      ),
+      }),
     ],
   });
-  return dialog;
 }
 
 let toastHost = null;
@@ -422,29 +524,20 @@ export function toast(message, tone = '') {
     toastHost = div({ class: 'toasts' });
     document.body.appendChild(toastHost);
   }
-  const el = div({ class: ['toast', tone && `toast--${tone}`] }, message);
+  const el = div(
+    { class: ['toast', tone === 'ok' && 'toast--ok'] },
+    icon(tone === 'bad' ? 'warning' : tone === 'ok' ? 'check' : 'info', { size: 16 }),
+    div({ class: 'grow' }, message),
+  );
   toastHost.appendChild(el);
-  setTimeout(() => {
-    el.style.opacity = '0';
-    el.style.transition = 'opacity .3s';
-    setTimeout(() => el.remove(), 320);
-  }, tone === 'bad' ? 6000 : 3600);
-}
-
-/* ------------------------------------------------------------------ */
-/* Page scaffolding                                                    */
-/* ------------------------------------------------------------------ */
-
-export function pageHead(title, intro, actions) {
-  return div(
-    { class: 'page-head' },
-    div({}, h('h1', {}, title), intro && div({ class: 'page-head__intro' }, intro)),
-    actions && div({ class: 'page-head__actions' }, actions),
+  setTimeout(
+    () => {
+      el.style.transition = 'opacity .3s';
+      el.style.opacity = '0';
+      setTimeout(() => el.remove(), 320);
+    },
+    tone === 'bad' ? 6000 : 3600,
   );
 }
 
-export function loading(text = 'Bezig met laden…') {
-  return div({ class: 'empty' }, text);
-}
-
-export { num, smart, pct, date, dateTime };
+export { num, smart, pct, date, dateTime, icon, GATE_LABELS };

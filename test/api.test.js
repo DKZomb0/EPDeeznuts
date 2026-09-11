@@ -294,3 +294,71 @@ test('onbekende eindpunten en methodes geven het juiste antwoord', async () => {
   assert.equal((await client.get('/bestaat-niet')).status, 404);
   assert.equal((await client.post('/reference')).status, 405);
 });
+
+test('het controlebureau ziet ook wat automatisch aanvaard werd', async () => {
+  const verifier = harness.client();
+  await verifier.login('ilse@certibeton.demo');
+
+  const { body } = await verifier.get('/declarations');
+  const inherited = body.declarations.filter((d) => d.status === 'AUTO_ACCEPTED');
+
+  // Zonder dit zicht kan het bureau niet nakijken welke wijzigingen langs de
+  // automatische bandbreedte gingen, en is die bandbreedte niet verdedigbaar.
+  assert.ok(inherited.length > 0, 'automatisch aanvaarde dossiers horen in de lijst van de verificateur');
+  assert.ok(inherited.every((d) => d.bypass_deviation !== null), 'elk geërfd dossier draagt zijn afwijking');
+});
+
+test('de voorbeeldberekening loopt door dezelfde motor als een opgeslagen versie', async () => {
+  const producer = harness.client();
+  await producer.login('lars@deschelde.demo');
+
+  const version = await db.get(
+    `SELECT rv.id FROM recipe_versions rv JOIN recipes r ON r.id = rv.recipe_id
+      WHERE r.code = 'C30/37-EE3-S4' AND rv.status = 'ACTIVE' ORDER BY rv.version_no DESC LIMIT 1`,
+  );
+  const stored = await producer.get(`/recipe-versions/${version.id}/calculate`);
+  const components = await db.all('SELECT * FROM recipe_components WHERE recipe_version_id = ?', [version.id]);
+  const parameters = await db.all('SELECT * FROM recipe_parameters WHERE recipe_version_id = ?', [version.id]);
+
+  const preview = await producer.post('/calculate', {
+    components: components.map((c) => ({
+      materialId: c.material_id,
+      quantityKg: c.quantity_kg,
+      transportKm: c.transport_km,
+      transportProfileId: c.transport_profile_id,
+    })),
+    parameters: parameters.map((p) => ({ code: p.code, value: p.value, unit: p.unit, overridden: !!p.overridden, justification: p.justification })),
+  });
+
+  assert.equal(preview.status, 200);
+  assert.ok(
+    Math.abs(preview.body.result.totals.GWP_TOTAL - stored.body.result.totals.GWP_TOTAL) < 1e-9,
+    'voorbeeld en opgeslagen versie moeten exact hetzelfde opleveren',
+  );
+  assert.equal(preview.body.result.verdict, stored.body.result.verdict);
+  assert.ok(preview.body.result.components.every((c) => c.byModule?.A1), 'elke component draagt haar bijdrage per fase');
+});
+
+test('een voorbeeldberekening met een niet-geverifieerde grondstof komt er ongeldig uit', async () => {
+  const producer = harness.client();
+  await producer.login('lars@deschelde.demo');
+
+  const pilot = await db.get("SELECT id FROM materials WHERE code = 'ACT-PILOT'");
+  const { body } = await producer.post('/calculate', {
+    components: [{ materialId: pilot.id, quantityKg: 300, transportKm: 20 }],
+  });
+
+  assert.equal(body.result.verdict, 'INVALID');
+  assert.ok(body.result.totals.GWP_TOTAL > 0, 'de berekening loopt gewoon door');
+});
+
+test('doorrekenen met een grondstof zonder inzage wordt geweigerd', async () => {
+  const other = harness.client();
+  await other.login('peter@vandenberghe.demo');
+
+  const cement = await db.get("SELECT id FROM materials WHERE code = 'CEM III/A 42,5 N LA'");
+  const res = await other.post('/calculate', { components: [{ materialId: cement.id, quantityKg: 300 }] });
+
+  assert.equal(res.status, 403);
+  assert.match(res.body.error.message, /inzage|toegang/i);
+});

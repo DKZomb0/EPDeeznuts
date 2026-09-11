@@ -377,6 +377,20 @@ async function seedDemo() {
       }
     }
   }
+
+  /* --- een lopende melding van een leverancier --- */
+  // Het scenario dat vandaag misloopt: een cementleverancier past een parameter
+  // aan en publiceert dat ergens op een website. Hier komt het bij elke afnemer
+  // binnen die het product gebruikt.
+  const cement = await get("SELECT m.*, o.name AS supplier_name FROM materials m JOIN organisations o ON o.id = m.org_id WHERE m.code = 'CEM III/A 42,5 N LA'");
+  const { notify } = await import('../lib/audit.js');
+  await notify(
+    orgIds.schelde,
+    'MATERIAL_CHANGED',
+    'Leverancier wijzigde een parameter',
+    `${cement?.supplier_name} — ${cement?.code}: GWP A1–A3 aangepast naar aanleiding van een nieuwe ovenlijn. Controleer welke recepturen hierdoor buiten de bandbreedte vallen.`,
+    '#/materials',
+  );
 }
 
 /**

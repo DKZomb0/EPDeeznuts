@@ -68,33 +68,51 @@ export function initials(name) {
 /* Domain vocabulary                                                   */
 /* ------------------------------------------------------------------ */
 
-export const VERDICT_TONE = { VALID: 'ok', VALID_WITH_WARNINGS: 'warn', INDICATIVE: 'warn', INVALID: 'bad' };
-
-export const STATUS_TONE = {
-  DRAFT: 'muted',
-  SUBMITTED: 'info',
-  UNDER_VERIFICATION: 'info',
-  VERIFIED: 'ok',
-  PUBLISHED: 'ok',
-  AUTO_ACCEPTED: 'ok',
-  REJECTED: 'bad',
-  EXPIRED: 'muted',
-  PENDING: 'warn',
-  GRANTED: 'ok',
-  DENIED: 'bad',
-  REVOKED: 'muted',
-  GO: 'ok',
-  GO_WITH_WARNING: 'warn',
-  NO_GO: 'bad',
-  MANUAL_OVERRIDE: 'warn',
-  ACTIVE: 'ok',
-  SUPERSEDED: 'muted',
-  ARCHIVED: 'muted',
-  PLANNED: 'info',
-  DELIVERED: 'ok',
+/**
+ * Tagklassen uit het designsysteem. Drie niveaus, meer niet:
+ *   tag-accent   in orde, de normale toestand
+ *   tag-outline  bruikbaar maar gemerkt — vraagt een menselijke blik
+ *   tag-neutral  geblokkeerd of waardeloos
+ * Die schaal is overgenomen uit het ontwerp (BEPD / Ecoinvent / geen bron) en
+ * geldt daarom overal in de toepassing hetzelfde.
+ */
+export const VERDICT_TAG = {
+  VALID: 'tag-accent',
+  VALID_WITH_WARNINGS: 'tag-outline',
+  INDICATIVE: 'tag-outline',
+  INVALID: 'tag-neutral',
 };
 
-export const EVIDENCE_TONE = { BEPD: 'ok', EPD_INTL: 'warn', SECTOR_GENERIC: 'warn', SELF_DECLARED: 'bad' };
+export const STATUS_TAG = {
+  DRAFT: 'tag-quiet',
+  SUBMITTED: 'tag-outline',
+  UNDER_VERIFICATION: 'tag-outline',
+  VERIFIED: 'tag-accent',
+  PUBLISHED: 'tag-accent',
+  AUTO_ACCEPTED: 'tag-accent',
+  REJECTED: 'tag-neutral',
+  EXPIRED: 'tag-quiet',
+  PENDING: 'tag-outline',
+  GRANTED: 'tag-accent',
+  DENIED: 'tag-neutral',
+  REVOKED: 'tag-quiet',
+  GO: 'tag-accent',
+  GO_WITH_WARNING: 'tag-outline',
+  NO_GO: 'tag-neutral',
+  MANUAL_OVERRIDE: 'tag-outline',
+  ACTIVE: 'tag-accent',
+  SUPERSEDED: 'tag-quiet',
+  ARCHIVED: 'tag-quiet',
+  PLANNED: 'tag-outline',
+  DELIVERED: 'tag-accent',
+};
+
+export const EVIDENCE_TAG = {
+  BEPD: 'tag-accent',
+  EPD_INTL: 'tag-outline',
+  SECTOR_GENERIC: 'tag-neutral',
+  SELF_DECLARED: 'tag-neutral',
+};
 
 export const GATE_LABELS = {
   GO: 'Vrijgegeven',

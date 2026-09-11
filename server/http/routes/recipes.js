@@ -20,7 +20,7 @@ import {
   parametersOf,
   nowIso,
 } from '../../domain/versioning.js';
-import { calculateRecipeVersion } from '../../domain/calc.js';
+import { calculateRecipeVersion, calculateComposition } from '../../domain/calc.js';
 import { evaluateChange } from '../../domain/changes.js';
 import { effectiveDeclarationFor } from '../../domain/declarations.js';
 import { defaultParameters } from '../../db/seed.js';
@@ -249,6 +249,44 @@ router.get('/recipe-versions/:id/calculate', async ({ res, user, params, query }
   ok(res, { result });
 });
 
+/**
+ * Voorbeeldberekening op een samenstelling die nog niet opgeslagen is.
+ *
+ * Het rekenblad rekent live mee terwijl de producent doseringen bijstelt. Die
+ * berekening loopt door dezelfde motor als een ingediende versie; er wordt hier
+ * alleen niets bewaard.
+ */
+router.post('/calculate', async ({ res, user, body }) => {
+  requireCap(user, 'recipes:write', 'Alleen een betonproducent kan een receptuur doorrekenen.');
+
+  const at = str(body.at, 'referentiedatum') ?? nowIso();
+  const scope = oneOf(body.scope, Object.values(SCOPES), 'scope') ?? 'A1-A3';
+
+  let recipe = null;
+  if (body.recipeId) {
+    recipe = await get('SELECT * FROM recipes WHERE id = ?', [str(body.recipeId, 'receptuur')]);
+    if (!recipe) throw notFound('Receptuur niet gevonden.');
+    if (recipe.org_id !== user.orgId) throw new Forbidden('Deze receptuur hoort bij een andere producent.');
+  }
+
+  const resolved = await resolveComponents(body.components ?? [], user, at);
+  const components = await hydrateComponents(resolved);
+  const parameters = body.parameters?.length ? sanitiseParameters(body.parameters, ['A3']) : await defaultParameters(['A3']);
+
+  const result = await calculateComposition(
+    { recipe: recipe ?? { density: num(body.density, 'densiteit', { min: 500, max: 5000 }) ?? 2350 }, version: null, components, parameters },
+    {
+      at,
+      scope,
+      site: body.distanceKm ? { distanceKm: Number(body.distanceKm), transportProfileId: body.transportProfileId } : undefined,
+      siteParameters: scope === 'A1-A5' ? await defaultParameters(['A5']) : undefined,
+      volumeM3: body.volumeM3 ? Number(body.volumeM3) : undefined,
+    },
+  );
+
+  ok(res, { result });
+});
+
 /** Does this version need a verifier, and exactly why? */
 router.get('/recipe-versions/:id/change-check', async ({ res, user, params }) => {
   await loadVersion(params.id, user);
@@ -321,6 +359,39 @@ async function resolveComponents(components, user, effectiveFrom) {
     });
   }
   return out;
+}
+
+/**
+ * Zet opgeloste componenten om naar de rijvorm die de motor verwacht — dezelfde
+ * vorm als `componentsOf()`, zodat de voorbeeldberekening en de opgeslagen
+ * berekening door identieke code lopen.
+ */
+async function hydrateComponents(resolved) {
+  const rows = [];
+  for (const [index, component] of resolved.entries()) {
+    const material = await get(
+      `SELECT m.*, o.name AS supplier_name FROM materials m JOIN organisations o ON o.id = m.org_id WHERE m.id = ?`,
+      [component.materialId],
+    );
+    rows.push({
+      id: `preview_${index}`,
+      material_id: component.materialId,
+      material_version_id: component.materialVersionId,
+      quantity_kg: component.quantityKg,
+      transport_km: component.transportKm,
+      transport_profile_id: component.transportProfileId,
+      sort: index,
+      note: component.note ?? null,
+      material_name: material.name,
+      material_code: material.code,
+      category: material.category,
+      declared_unit: material.declared_unit,
+      material_density: material.density,
+      supplier_org_id: material.org_id,
+      supplier_name: material.supplier_name,
+    });
+  }
+  return rows;
 }
 
 function sanitiseParameters(parameters, modules) {

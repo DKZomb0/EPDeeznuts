@@ -26,7 +26,10 @@ router.get('/declarations', async ({ res, user, query }) => {
   // its own dossiers.
   let filter;
   if (user.orgType === ORG_TYPES.VERIFIER) {
-    filter = { statuses: statuses ?? ['SUBMITTED', 'UNDER_VERIFICATION', 'VERIFIED', 'PUBLISHED', 'REJECTED'] };
+    // AUTO_ACCEPTED hoort er uitdrukkelijk bij: het controlebureau moet kunnen
+    // nakijken welke wijzigingen langs de automatische bandbreedte gingen. Zonder
+    // dat zicht is de bandbreedte zelf niet verdedigbaar.
+    filter = { statuses: statuses ?? ['SUBMITTED', 'UNDER_VERIFICATION', 'VERIFIED', 'PUBLISHED', 'REJECTED', 'AUTO_ACCEPTED'] };
   } else if (isOversight(user)) {
     filter = { statuses };
   } else {

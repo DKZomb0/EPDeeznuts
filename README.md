@@ -1,6 +1,8 @@
-# EPDeeznuts
+# EPDeeznuts — *Materia*
 
 Platform voor het berekenen, verifiëren en publiceren van milieuprofielen van beton — EPD/BEPD volgens EN 15804+A2, modules A1 t.e.m. A5.
+
+De toepassing draagt in de interface de naam **Materia**; `EPDeeznuts` is de repositorynaam. Het ontwerp volgt het Claude Design-bestand *Materia Portaal* (designsysteem "nocturne", omgekeerd naar zijn lichte ramp).
 
 ---
 
@@ -28,7 +30,7 @@ npm start           # http://localhost:3000
 Geen `npm install` nodig: de toepassing heeft **geen runtime-afhankelijkheden**. De databank (SQLite) wordt bij de eerste start aangemaakt en gevuld met masterdata en een demodataset.
 
 ```bash
-npm test            # 52 tests
+npm test            # 56 tests
 npm run reset       # databank wissen en opnieuw opbouwen
 DEMO_DATA=0 npm start   # starten zonder fictieve organisaties
 ```
@@ -50,15 +52,17 @@ Wachtwoord voor alle accounts: `demo1234`. Ze staan ook op het aanmeldscherm, aa
 
 ### Demo in tien minuten
 
-1. **Als producent** (`lars@deschelde.demo`) → *Recepturen* → `C30/37-EE3-S4` → actieve versie.
-   Het tabblad **Berekening** toont elke term met zijn formule, zijn factor, de bron van die factor en het BEPD-nummer erachter. Knop **Transparantierapport** rolt het volledige dossier uit.
-2. Open `C35/45-EE4-ROOD`. Het rekent gewoon door, maar het oordeel is **Ongeldig**: het pigment heeft enkel een eigen opgave. Eén ontbrekend bewijsstuk stroomopwaarts maakt het hele resultaat waardeloos.
-3. Open `C25/30-EE1-S3`. Oordeel **Geldig met opmerking**: de hulpstof steunt op een internationale EPD in plaats van een BEPD. Bruikbaar, maar gemerkt — en het telt niet mee in de sectorgemiddelden.
-4. **Als verificateur** (`ilse@certibeton.demo`) → probeer het ongeldige dossier goed te keuren. Dat wordt geweigerd: een verificateur kan een gat stroomopwaarts niet dichtschrijven.
-   Kijk op het tabblad *Automatisch aanvaard*: de wijzigingen die nooit bij u kwamen, met hun afwijking.
-5. **Als producent** → maak een nieuwe versie met 5 kg minder cement. Het systeem zegt meteen: binnen de marge, geen verificatie nodig. Doe het met 60 kg en het gaat terug naar de verificateur, met de reden erbij.
-6. **Als aannemer** (`jonas@verhoeven.demo`) → een project → een levering → **Controle uitvoeren**. Hier komen A4 en A5 erbij, en het go/no-go-oordeel.
-7. **Als federatie** (`bart@betonfederatie.demo`) → *Sectorgemiddelden*. De bandbreedte 119–311 kg CO₂ eq./m³ voor dezelfde klasse — het argument waarom een generiek cijfer alleen niet volstaat.
+Bovenaan staat een **rolwissel**. Die meldt echt aan als die persona in plaats van alleen de weergave te veranderen — anders zou het platform rechten voorwenden die het niet afdwingt.
+
+1. **Als producent** (`lars@deschelde.demo`) → *Recepturen* → `C30/37-EE3-S4` → **Rekenblad openen**.
+   Pas de cementdosering aan: het resultaat rechts rekent mee terwijl u typt, en er verschijnt een melding dat de wijziging nog niet bewaard is. Onderaan staat elke rekenterm met zijn formule, zijn factor, de bron van die factor en het BEPD-nummer erachter.
+2. Klik in **Cement — bron** op *Klinkerarm bindmiddel ACT (proef)*. Het oordeel slaat om naar **Ongeldig**: dat bindmiddel draagt enkel een eigen opgave. De berekening loopt door, het resultaat is waardeloos. Kies *CEM I 52,5 R (Lixhe)* en het wordt **Geldig met opmerking** — een internationale EPD is toegelaten, maar gemerkt.
+3. **Bewaren als nieuwe versie** met een kleine wijziging: het systeem zegt meteen dat ze binnen de bandbreedte blijft en geen verificatie nodig heeft. Doe het met 60 kg minder cement en het gaat terug naar het controlebureau, met de reden erbij.
+4. Knop **Transparantierapport** rolt het volledige dossier uit: inputs, parameters, elke term, de gebruikte masterdata en de audittrail.
+5. **Als verificateur** (`ilse@certibeton.demo`) → probeer een ongeldig dossier vrij te geven. Dat wordt geweigerd: een controlebureau kan een gat stroomopwaarts niet dichtschrijven.
+   Tabblad *Automatisch aanvaard*: de wijzigingen die nooit bij u kwamen, met hun afwijking. Tabblad *Afwijkingen van sectorwaarden*: uw eigenlijke controlelijst.
+6. **Als aannemer** (`jonas@verhoeven.demo`) → een project → een levering → **Controle uitvoeren**. Hier komen A4 en A5 erbij, met het go/no-go-oordeel en de manuele uitzondering.
+7. **Als federatie** (`bart@betonfederatie.demo`) → *Generieke waarden*. De bandbreedte 119–311 kg CO₂ eq./m³ voor dezelfde klasse — het argument waarom een generiek cijfer alleen niet volstaat.
 
 ---
 
@@ -135,15 +139,20 @@ server/
   db/              schema, migratie, seed, twee drivers
   http/            router, routes, statische bestanden
 public/            de client: ES-modules, geen buildstap
+  css/app.css        designsysteem "nocturne" — tokens en componentklassen
+  js/lib/icons.js    eigen lijniconen, inline SVG (geen CDN)
+  js/views/          één bestand per scherm
 test/              52 tests (node --test)
 api/index.js       Vercel-ingang
 ```
 
-Twee ontwerpbeslissingen die de rest verklaren:
+Drie ontwerpbeslissingen die de rest verklaren:
 
 **Alles is effectief gedateerd.** Materialen en recepturen worden nooit ter plaatse aangepast: een wijziging sluit de lopende versie af en opent een nieuwe. Een verificatie in november kan daardoor nog exact reconstrueren welke cijfers golden tijdens een levering in augustus. Ook masterdata (transport- en energiefactoren) is gedateerd; een berekening verwijst altijd naar de versie die gold op haar referentiedatum.
 
 **Elke rekenterm verklaart zichzelf.** De motor produceert geen totaal maar een lijst termen, elk met inputs, factor, herkomst van die factor en het bewijsstuk erachter. De voorwaarde van de administratie was dat de rekenregels sluitend en transparant zijn; een term die zichzelf niet kan uitleggen hoort niet in de motor.
+
+**Eén rekenpad.** Het rekenblad rekent live mee terwijl een producent doseringen bijstelt, maar die voorbeeldberekening loopt via `POST /calculate` door exact dezelfde motor als een ingediende versie. De client rekent zelf niets uit. Twee rekenpaden die uit elkaar groeien is precies het soort verschil dat een verificateur terecht niet vertrouwt.
 
 Bij indiening wordt de berekening **bevroren** in `result_json`. Wat een verificateur ondertekent, mag daarna niet stilzwijgend veranderen doordat een transportfactor bijgewerkt werd. Het rapport zegt expliciet of u naar de vastgelegde momentopname kijkt of naar een herberekening, en toont het verschil als dat er is.
 
@@ -180,6 +189,7 @@ Alle eindpunten zitten onder `/api` en verwachten een sessiecookie (`POST /api/a
 | `GET/POST /access`, `POST /access/:id/decide` | toegangsaanvragen |
 | `GET/POST /recipes`, `POST /recipes/:id/versions` | recepturen |
 | `GET /recipe-versions/:id/calculate` | de berekening met volledige trace |
+| `POST /calculate` | voorbeeldberekening op een nog niet opgeslagen samenstelling |
 | `GET /recipe-versions/:id/change-check` | moet dit langs een verificateur? |
 | `GET /recipe-versions/:id/report` | het transparantierapport |
 | `POST /declarations`, `.../take`, `.../decide`, `.../publish` | de dossierlevenscyclus |
@@ -198,6 +208,7 @@ Eerlijk over de grens tussen beide:
 
 **Nog nodig voor productie:**
 
+- **Het ontwerp.** De interface volgt het geleverde Claude Design-bestand, maar de bijhorende stylesheet van het designsysteem zat er niet bij. De tokens in `public/css/app.css` zijn gereconstrueerd uit de kleuren in het ontwerp zelf; de Phosphor-iconen zijn vervangen door een eigen set in dezelfde tekenstijl, zodat de toepassing zonder netwerk blijft werken. Met de echte stylesheet erbij vervangt u dat bestand.
 - **Aanmelding.** Nu wachtwoorden met scrypt. In productie hoort dit via de identiteitsprovider van elke organisatie (Entra ID was het plan). De rest van de code weet niet hoe iemand zich identificeerde en verandert daar niet voor.
 - **Cijfers in de masterdata.** De transport- en energiefactoren zijn realistische ordes van grootte uit gepubliceerde datasets, maar elke rij heeft een afgesproken bronvermelding nodig voordat er een juridisch bindend cijfer uit rolt. Daarom is `source` verplicht in het schema.
 - **Bijlagen.** Verantwoordingsnota's en meetrapporten worden nu als link opgeslagen, niet als bestand.
